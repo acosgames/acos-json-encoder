@@ -1,8 +1,8 @@
 # ACOS JSON Encoder for Websocket Networking
 
-Generate a delta of your JSON and then efficiently encode into serialized bytes using a dictionary to reduce your bandwidth bytes transmitted to players.
+Efficiently encode your JSON object or array into serialized bytes for primitive types, also includes a string dictionary to reduce bandwidth bytes transmitted to players.
 
-Best used with acos-json-delta
+This package should be used in combination with the [acos-json-delta](https://github.com/acosgames/acos-json-delta) to maximize bandwidth reduction.
 
 ## Installation
 
@@ -11,8 +11,6 @@ npm i acos-json-encoder
 ```
 
 ## Usage
-
-This package is used in combination with the `acos-json-encoder` to maximize bandwidth reduction.
 
 #### CommonJS (nodejs)
 
