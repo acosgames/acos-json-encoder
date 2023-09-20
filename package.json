@@ -1,11 +1,15 @@
 {
   "name": "acos-json-encoder",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "JSON serializer and deserializer used by ACOS.games",
   "main": "encoder.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "author": "",
-  "license": "ISC"
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/acosgames/acos-json-encoder.git"
+  },
+  "author": "acosg",
+  "license": "MIT"
 }
