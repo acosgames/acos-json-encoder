@@ -1,0 +1,11 @@
+{
+  "name": "acos-json-encoder",
+  "version": "1.0.0",
+  "description": "JSON serializer and deserializer used by ACOS.games",
+  "main": "encoder.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC"
+}
