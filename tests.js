@@ -623,13 +623,30 @@ function testEncoding() {
     let start = new Date();
 
     testJSON = {
-        room: {
-            sequence: 10,
-            status: "gameover",
-            endtime: 1716346330438,
-            updated: 1716346330438,
-            empty: [],
+        // room: {
+        //     sequence: 10,
+        //     status: "gameover",
+        //     endtime: 1716346330438,
+        //     updated: 1716346330438,
+        //     empty: [],
+        // },
+
+        user: {
+            shortid: "BP6WQ9",
+            displayname: "Player_0",
         },
+        gameSettings: {
+            minplayers: 1,
+            maxplayers: 1,
+            minteams: 0,
+            maxteams: 0,
+            teams: [],
+            screentype: 3,
+            screenwidth: 1400,
+            resow: 4,
+            resoh: 3,
+        },
+
         // state: {
         //     "#cells": [
         //         {

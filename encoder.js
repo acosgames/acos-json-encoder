@@ -535,31 +535,31 @@ function serializeObj(json, buffer, dict, cache) {
             let dist = buffer.length - startPos;
             continue;
         } else {
-            if (key == "state") {
-                buffer.push(TYPE_KEY_STATE);
-                buffer.push(Object.keys(value).length);
-                serializeObj(value, buffer, dict, cache);
-                // buffer.push(TYPE_ENDOBJ);
-                continue;
-            } else if (key == "players") {
-                buffer.push(TYPE_KEY_PLAYERS);
-                buffer.push(Object.keys(value).length);
-                serializeObj(value, buffer, dict, cache);
-                // buffer.push(TYPE_ENDOBJ);
-                continue;
-            } else if (key == "teams") {
-                buffer.push(TYPE_KEY_TEAMS);
-                buffer.push(Object.keys(value).length);
-                serializeObj(value, buffer, dict, cache);
-                // buffer.push(TYPE_ENDOBJ);
-                continue;
-            } else if (key == "room") {
-                buffer.push(TYPE_KEY_ROOMS);
-                buffer.push(Object.keys(value).length);
-                serializeObj(value, buffer, dict, cache);
-                // buffer.push(TYPE_ENDOBJ);
-                continue;
-            }
+            // if (key == "state") {
+            //     buffer.push(TYPE_KEY_STATE);
+            //     buffer.push(Object.keys(value).length);
+            //     serializeObj(value, buffer, dict, cache);
+            //     // buffer.push(TYPE_ENDOBJ);
+            //     continue;
+            // } else if (key == "players") {
+            //     buffer.push(TYPE_KEY_PLAYERS);
+            //     buffer.push(Object.keys(value).length);
+            //     serializeObj(value, buffer, dict, cache);
+            //     // buffer.push(TYPE_ENDOBJ);
+            //     continue;
+            // } else if (key == "teams") {
+            //     buffer.push(TYPE_KEY_TEAMS);
+            //     buffer.push(Object.keys(value).length);
+            //     serializeObj(value, buffer, dict, cache);
+            //     // buffer.push(TYPE_ENDOBJ);
+            //     continue;
+            // } else if (key == "room") {
+            //     buffer.push(TYPE_KEY_ROOMS);
+            //     buffer.push(Object.keys(value).length);
+            //     serializeObj(value, buffer, dict, cache);
+            //     // buffer.push(TYPE_ENDOBJ);
+            //     continue;
+            // }
 
             let startPos = buffer.length;
             mapKey(key, buffer, dict, cache);
@@ -848,22 +848,22 @@ function deserializeObj(json, ref) {
     for (let x = 0; x < objLen; x++) {
         let type = ref.buffer.getUint8(ref.pos++);
 
-        if (type == TYPE_KEY_STATE) {
-            json["state"] = deserializeObj({}, ref);
-            continue;
-        } else if (type == TYPE_KEY_PLAYERS) {
-            json["players"] = deserializeObj({}, ref);
-            continue;
-        } else if (type == TYPE_KEY_TEAMS) {
-            json["teams"] = deserializeObj({}, ref);
-            continue;
-        } else if (type == TYPE_KEY_ROOMS) {
-            json["room"] = deserializeObj({}, ref);
-            continue;
-        } else if (type == TYPE_KEY_EVENTS) {
-            json["events"] = deserializeObj({}, ref);
-            continue;
-        }
+        // if (type == TYPE_KEY_STATE) {
+        //     json["state"] = deserializeObj({}, ref);
+        //     continue;
+        // } else if (type == TYPE_KEY_PLAYERS) {
+        //     json["players"] = deserializeObj({}, ref);
+        //     continue;
+        // } else if (type == TYPE_KEY_TEAMS) {
+        //     json["teams"] = deserializeObj({}, ref);
+        //     continue;
+        // } else if (type == TYPE_KEY_ROOMS) {
+        //     json["room"] = deserializeObj({}, ref);
+        //     continue;
+        // } else if (type == TYPE_KEY_EVENTS) {
+        //     json["events"] = deserializeObj({}, ref);
+        //     continue;
+        // }
 
         if (type == TYPE_OBJ_DELETE) {
             json["$"] = deserializeArr([], ref);
