@@ -628,37 +628,38 @@ function testEncoding() {
             status: "gameover",
             endtime: 1716346330438,
             updated: 1716346330438,
+            empty: [],
         },
-        state: {
-            "#cells": [
-                {
-                    index: 6,
-                    type: "setvalue",
-                    value: "X",
-                },
-            ],
-        },
-        events: {
-            gameover: {
-                type: "winner",
-                pick: "team_x",
-                strip: [0, 3, 6],
-                shortid: "pkHQf",
-            },
-            $: ["join"],
-        },
-        players: {
-            pkHQf: {
-                rank: 1,
-                score: 100,
-            },
-        },
-        teams: {
-            team_x: {
-                rank: 1,
-                score: 100,
-            },
-        },
+        // state: {
+        //     "#cells": [
+        //         {
+        //             index: 6,
+        //             type: "setvalue",
+        //             value: "X",
+        //         },
+        //     ],
+        // },
+        // events: {
+        //     gameover: {
+        //         type: "winner",
+        //         pick: "team_x",
+        //         strip: [0, 3, 6],
+        //         shortid: "pkHQf",
+        //     },
+        //     $: ["join"],
+        // },
+        // players: {
+        //     pkHQf: {
+        //         rank: 1,
+        //         score: 100,
+        //     },
+        // },
+        // teams: {
+        //     team_x: {
+        //         rank: 1,
+        //         score: 100,
+        //     },
+        // },
     };
 
     // testJSON = { compact: true, schema: 0 };
@@ -678,7 +679,13 @@ function testEncoding() {
     if (JSON.stringify(testJSON) == JSON.stringify(decoded)) {
         console.log("Encoding MATCHES");
     } else {
-        console.log("Encoding not match", decoded);
+        console.log(
+            "Encoding not match",
+            "\nBefore:",
+            testJSON,
+            "\nAfter:",
+            decoded
+        );
     }
 
     // output byte sizes

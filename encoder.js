@@ -858,7 +858,7 @@ function deserializeObj(json, ref) {
             json["teams"] = deserializeObj({}, ref);
             continue;
         } else if (type == TYPE_KEY_ROOMS) {
-            json["rooms"] = deserializeObj({}, ref);
+            json["room"] = deserializeObj({}, ref);
             continue;
         } else if (type == TYPE_KEY_EVENTS) {
             json["events"] = deserializeObj({}, ref);
