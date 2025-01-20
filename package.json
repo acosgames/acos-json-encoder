@@ -1,15 +1,19 @@
 {
-  "name": "acos-json-encoder",
-  "version": "1.0.2",
-  "description": "JSON serializer and deserializer used by ACOS.games",
-  "main": "encoder.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/acosgames/acos-json-encoder.git"
-  },
-  "author": "acosg",
-  "license": "MIT"
+    "name": "acos-json-encoder",
+    "version": "1.0.4",
+    "description": "JSON serializer and deserializer used by ACOS.games",
+    "main": "encoder.js",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/acosgames/acos-json-encoder.git"
+    },
+    "author": "acosg",
+    "license": "MIT",
+    "devDependencies": {
+        "msgpackr": "^1.9.9",
+        "msgpackr-extract": "^3.0.2"
+    }
 }
