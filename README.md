@@ -21,8 +21,18 @@ const { encode, decode, createDefaultDict } = require("acos-json-encoder");
 #### ES6 (webpack, vite, etc)
 
 ```js
-import {encode, decode, createDefaultDict} = require("acos-json-encoder");
+import { encode, decode, createDefaultDict } from "acos-json-encoder";
 ```
+
+## Development
+
+```shell
+npm install
+npm run build
+npm test
+```
+
+TypeScript source files live in `src/` and compile to `dist/`.
 
 ### Encoding and Decoding example
 

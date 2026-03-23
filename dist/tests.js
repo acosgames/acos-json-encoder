@@ -1,5 +1,4 @@
 const { encode, decode, createDefaultDict } = require("./encoder");
-
 var defaultDictionary = [
     "room_slug",
     "game_slug",
@@ -94,34 +93,6 @@ var defaultDictionary = [
     "shortid",
     "private_key",
     "joined",
-    "Wood I",
-    "Wood II",
-    "Wood III",
-    "Wood IV",
-    "Bronze I",
-    "Bronze II",
-    "Bronze III",
-    "Bronze IV",
-    "Silver I",
-    "Silver II",
-    "Silver III",
-    "Silver IV",
-    "Gold I",
-    "Gold II",
-    "Gold III",
-    "Gold IV",
-    "Platinum I",
-    "Platinum II",
-    "Platinum III",
-    "Platinum IV",
-    "Champion I",
-    "Champion II",
-    "Champion III",
-    "Champion IV",
-    "Grand Champion I",
-    "Grand Champion II",
-    "Grand Champion III",
-    "Grand Champion IV",
     "board",
     "playerCount",
     "red",
@@ -143,7 +114,7 @@ var defaultDictionary = [
     "timeseq",
     "isreplay",
     "status",
-    "sequence",
+    "_sequence",
     "history",
     "index",
     "value",
@@ -169,10 +140,21 @@ var defaultDictionary = [
     "team_16",
     "correct",
     "incorrect",
+    "queueStats",
+    "preview_images",
+    "preview_image",
+    "count",
+    "portraitid",
+    "countrycode",
+    "US",
+    "UK",
+    "gamecancelled",
+    "gameerror",
+    "timesec",
     "timeend",
-    "timeseconds",
+    "next_id",
+    "next_action",
 ];
-
 let testJSON = [
     {
         room_id: 325,
@@ -534,14 +516,7 @@ let testJSON = [
         },
     },
 ];
-
-const {
-    unpack,
-    pack,
-    Packr,
-    Unpackr,
-    isNativeAccelerationEnabled,
-} = require("msgpackr");
+const { unpack, pack, Packr, Unpackr, isNativeAccelerationEnabled, } = require("msgpackr");
 function testEncoding() {
     // example dictionary to match any strings that might appear in JSON
     // this will reduce these strings into two bytes when detected
@@ -581,7 +556,6 @@ function testEncoding() {
         "timeend",
         "timeseconds",
     ];
-
     // example JSON data to encode/decode
     // let jsonData = {
     //     iobYl: {
@@ -603,14 +577,10 @@ function testEncoding() {
     //         type: "O",
     //     },
     // };
-
     if (!isNativeAccelerationEnabled)
-        console.warn(
-            "Native acceleration not enabled, verify that install finished properly"
-        );
-
+        console.warn("Native acceleration not enabled, verify that install finished properly");
     // use your dictionary
-    createDefaultDict([]);
+    createDefaultDict(defaultDictionary);
     let packer = new Packr({
         bundleStrings: false,
         isNativeAccelerationEnabled: true,
@@ -619,9 +589,7 @@ function testEncoding() {
         bundleStrings: false,
         isNativeAccelerationEnabled: true,
     });
-
     let start = new Date();
-
     testJSON = {
         // room: {
         //     sequence: 10,
@@ -630,31 +598,130 @@ function testEncoding() {
         //     updated: 1716346330438,
         //     empty: [],
         // },
-
-        user: {
-            shortid: "BP6WQ9",
-            displayname: "Player_0",
-        },
-        gameSettings: {
-            minplayers: 1,
-            maxplayers: 1,
-            minteams: 0,
-            maxteams: 0,
-            teams: [],
-            screentype: 3,
-            screenwidth: 1400,
-            resow: 4,
-            resoh: 3,
-        },
-
         // state: {
-        //     "#cells": [
+        //     "#history": [
         //         {
-        //             index: 6,
+        //             index: 3,
         //             type: "setvalue",
-        //             value: "X",
+        //             value: 2,
         //         },
         //     ],
+        //     round: 4,
+        // },
+        // players: {
+        //     BF7F9T: {
+        //         score: 3,
+        //     },
+        // },
+        // room2: {
+        //     timeend: 1737347757337,
+        // },
+        // payload: {
+        //     _error: "Square is not empty!",
+        //     offset: -2,
+        //     serverTime: 1737353884246,
+        // },
+        // cells: [
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        //     "",
+        // ],
+        // state2: {
+        //     cells: ["", "", "", "", "", "", "", "", ""],
         // },
         // events: {
         //     gameover: {
@@ -665,7 +732,7 @@ function testEncoding() {
         //     },
         //     $: ["join"],
         // },
-        // players: {
+        // players2: {
         //     pkHQf: {
         //         rank: 1,
         //         score: 100,
@@ -677,38 +744,49 @@ function testEncoding() {
         //         score: 100,
         //     },
         // },
+        room: {
+            next_id: "PLBMJK",
+            timeend: 1737509991080,
+        },
+        state: {
+            "#cells": [
+                {
+                    index: 3,
+                    type: "setvalue",
+                    value: "X",
+                },
+            ],
+        },
+        "#players": [
+            {
+                index: 1,
+                type: "setvalue",
+                value: {
+                    score: 2,
+                },
+            },
+        ],
     };
-
     // testJSON = { compact: true, schema: 0 };
-
     // encode and serialize the data into bytes
-    let jsonEncoded = encode(testJSON, myDictionary);
+    let jsonEncoded = encode(testJSON);
     // decode the bytes back into a JSON string
-    let decoded = decode(jsonEncoded, myDictionary);
+    let decoded = decode(jsonEncoded);
     // console.log("acos time:", (new Date() - start));
-
     start = new Date();
     let packed = packer.pack(testJSON);
     let unpacked = unpacker.unpack(packed);
     // console.log("msgp time:", (new Date() - start));
-
     // validate the original matches the decoded
     if (JSON.stringify(testJSON) == JSON.stringify(decoded)) {
         console.log("Encoding MATCHES");
-    } else {
-        console.log(
-            "Encoding not match",
-            "\nBefore:",
-            testJSON,
-            "\nAfter:",
-            decoded
-        );
     }
-
+    else {
+        console.log("Encoding not match", "\nBefore:", JSON.stringify(testJSON), "\nAfter :", JSON.stringify(decoded));
+    }
     // output byte sizes
     console.log("JSON string size: ", JSON.stringify(testJSON).length);
     console.log("acos encoded JSON size:", jsonEncoded.byteLength);
     console.log("msgpack encoded JSON size: ", packed.byteLength);
 }
-
 testEncoding();

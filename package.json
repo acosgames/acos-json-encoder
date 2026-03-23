@@ -1,10 +1,12 @@
 {
     "name": "acos-json-encoder",
-    "version": "1.0.6",
+    "version": "1.0.15",
     "description": "JSON serializer and deserializer used by ACOS.games",
-    "main": "encoder.js",
+    "main": "dist/encoder.js",
+    "types": "dist/encoder.d.ts",
     "scripts": {
-        "test": "echo \"Error: no test specified\" && exit 1"
+        "build": "tsc -p tsconfig.json",
+        "test": "npm run build && node dist/tests.js"
     },
     "repository": {
         "type": "git",
@@ -12,8 +14,13 @@
     },
     "author": "acosg",
     "license": "MIT",
+    "files": [
+        "dist"
+    ],
     "devDependencies": {
+        "@types/node": "^22.15.3",
         "msgpackr": "^1.9.9",
-        "msgpackr-extract": "^3.0.2"
+        "msgpackr-extract": "^3.0.2",
+        "typescript": "^5.8.3"
     }
 }

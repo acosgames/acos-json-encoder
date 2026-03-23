@@ -1,45 +1,40 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.encode = encode;
+exports.decode = decode;
+exports.serialize = serialize;
+exports.deserialize = deserialize;
+exports.createDefaultDict = createDefaultDict;
 const encoderVersion = "1.2";
 console.log("ENCODER VERSION = " + encoderVersion);
-
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-
 function getBigUint64(view, position, littleEndian = false) {
     if ("getBigUint64" in DataView.prototype) {
         return view.getBigUint64(position, littleEndian);
     }
-
-    const lsb = BigInt(
-        view.getUint32(position + (littleEndian ? 0 : 4), littleEndian)
-    );
-    const gsb = BigInt(
-        view.getUint32(position + (littleEndian ? 4 : 0), littleEndian)
-    );
+    const lsb = BigInt(view.getUint32(position + (littleEndian ? 0 : 4), littleEndian));
+    const gsb = BigInt(view.getUint32(position + (littleEndian ? 4 : 0), littleEndian));
     return lsb + 4294967296n * gsb;
 }
-
-function setBigUint64(view, byteOffset, value, littleEndian) {
+function setBigUint64(view, byteOffset, value, littleEndian = false) {
     if ("setBigUint64" in DataView.prototype) {
         view.setBigUint64(byteOffset, BigInt(value), littleEndian);
         return true;
     }
-
     let buff = bnToBuf(value);
     for (var i = 0; i < buff.length; i++) {
         view.setUint8(byteOffset + i, buff[i]);
     }
     return true;
 }
-
 function bnToBuf(bn) {
     var hex = BigInt(bn).toString(16);
     if (hex.length % 2) {
         hex = "0" + hex;
     }
-
     var len = hex.length / 2;
     var u8 = [];
-
     for (let x = 0; x < 8 - len; x++) {
         u8.push(0);
     }
@@ -50,10 +45,8 @@ function bnToBuf(bn) {
         i += 1;
         j += 2;
     }
-
     return u8;
 }
-
 const TYPE_OBJ = 254;
 const TYPE_ARR = 253;
 // const TYPE_BOOL = 253
@@ -90,7 +83,7 @@ const TYPE_ARR_DELTA = 223;
 const TYPE_ARR_RESIZE = 222;
 const TYPE_ARR_SETVALUE = 221;
 const TYPE_ARR_NESTED = 220;
-const TYPE_KEY_STATE = 219;
+const TYPE_ARR_ALLOCATE = 219;
 const TYPE_KEY_PLAYERS = 218;
 const TYPE_KEY_TEAMS = 217;
 const TYPE_KEY_ROOMS = 216;
@@ -114,12 +107,9 @@ const TYPE_KEY_EVENTS = 215;
 // const TYPE_KEY_TEAMS_EMPTY = 198;
 // const TYPE_KEY_RULES = 197;
 // const TYPE_KEY_RULES_EMPTY = 196;
-
 var dvbuff = new ArrayBuffer(16);
 var dv = new DataView(dvbuff);
-
 var defaultDict = null;
-
 function createDefaultDict(storedDict) {
     if (storedDict) {
         defaultDict = {
@@ -129,46 +119,35 @@ function createDefaultDict(storedDict) {
         };
         createDictKeys(defaultDict);
     }
-
     return defaultDict;
 }
-
 function isObject(obj) {
     var type = typeof obj;
     return type === "function" || type === "object";
 }
-
 function serialize(json, dict) {
     let buffer = [];
-    dict = dict || { count: defaultOrder.length, keys: {}, order: [] };
-
+    dict = dict || { count: defaultDict?.order?.length || 0, keys: {}, order: [] };
     let cache = {};
-
     serializeEX(json, buffer, dict, cache);
-
     let arrBuffer = Uint8Array.from(buffer);
     // for (var i = 0; i < buffer.length; i++) {
     //     arrBuffer[i] = buffer[i];
     // }
-
     return arrBuffer.buffer;
 }
-
 function serializeEX(json, buffer, dict, cache) {
     buffer = buffer || [];
-    dict = dict || { count: defaultOrder.length, keys: {}, order: [] };
-
+    dict = dict || { count: defaultDict?.order?.length || 0, keys: {}, order: [] };
     if (typeof json === "undefined" || json == null) {
         buffer.push(TYPE_NULL);
         return;
     }
     let isString = typeof json === "string" || json instanceof String;
-
     if (json instanceof Date) {
         buffer.push(TYPE_DATE);
         let epoch = json.getTime();
         // console.log('epoch', epoch);
-
         setBigUint64(dv, 0, BigInt(epoch));
         // dv.setBigUint64(0, BigInt(epoch));
         buffer.push(dv.getUint8(0));
@@ -181,10 +160,28 @@ function serializeEX(json, buffer, dict, cache) {
         buffer.push(dv.getUint8(7));
         return;
     }
-
     if (Array.isArray(json)) {
         if (json.length == 0) {
             buffer.push(TYPE_EMPTY_ARR);
+            return;
+        }
+        let matches = 1;
+        let first = json[0];
+        for (let i = 1; i < json.length && i <= 255; i++) {
+            if (first != json[i])
+                break;
+            matches++;
+        }
+        if (matches == json.length && json.length <= 255) {
+            buffer.push(TYPE_ARR_ALLOCATE);
+            buffer.push(json.length);
+            serializeEX(first, buffer, dict, cache);
+            return;
+        }
+        //arrays 15 or less, encode without endarr
+        if (json.length <= 15) {
+            buffer.push(0x90 | json.length);
+            serializeArr(json, buffer, dict, cache);
             return;
         }
         buffer.push(TYPE_ARR);
@@ -192,38 +189,32 @@ function serializeEX(json, buffer, dict, cache) {
         buffer.push(TYPE_ENDARR);
         return;
     }
-
     if (isObject(json)) {
         if (Object.keys(json).length == 0) {
             buffer.push(TYPE_EMPTY_OBJ);
             return;
         }
-
         let keys = Object.keys(json);
         if (keys.length <= 15) {
             buffer.push(128 | keys.length);
             serializeObj(json, buffer, dict, cache);
             return;
         }
-
         buffer.push(TYPE_OBJ);
         buffer.push(keys.length);
         serializeObj(json, buffer, dict, cache);
         // buffer.push(TYPE_ENDOBJ);
         return;
     }
-
     if (isString) {
         if (json.length == 0) {
             buffer.push(TYPE_EMPTYSTRING);
             return;
         }
-
         let exists = mapKey(json, buffer, dict, cache, true);
         if (exists) {
             return;
         }
-
         if (json in cache) {
             let pos = cache[json];
             // console.log("Found cache for:", json, "at", pos);
@@ -231,35 +222,33 @@ function serializeEX(json, buffer, dict, cache) {
                 buffer.push(TYPE_STRING_DICT1);
                 dv.setUint8(0, pos);
                 buffer.push(dv.getUint8(0));
-            } else {
+            }
+            else {
                 buffer.push(TYPE_STRING_DICT2);
                 dv.setUint16(0, pos);
                 buffer.push(dv.getUint8(0));
                 buffer.push(dv.getUint8(1));
             }
-
             return;
         }
         let maxLengthEncoding = 31;
-
         if (json.length <= maxLengthEncoding) {
             buffer.push(0xa0 | json.length); // set bits (1010 0000) to mark as a string with 5bit length
-        } else {
+        }
+        else {
             buffer.push(TYPE_STRING);
             let pos = buffer.length;
             cache[json] = pos;
         }
-
         let encoded = encoder.encode(json);
         for (let i = 0; i < encoded.byteLength; i++) {
             // console.log(json + '[' + i + ']', encoded[i]);
             buffer.push(encoded[i]);
         }
-
-        if (json.length > maxLengthEncoding) buffer.push(0);
+        if (json.length > maxLengthEncoding)
+            buffer.push(0);
         return;
     }
-
     if (typeof json === "boolean") {
         if (json == false) {
             buffer.push(TYPE_FALSE);
@@ -268,15 +257,14 @@ function serializeEX(json, buffer, dict, cache) {
         buffer.push(TYPE_TRUE);
         return;
     }
-
     if (typeof json === "number") {
         if (Number.isInteger(json)) {
             if (json >= 0 && json <= 127) {
                 buffer.push(json); // 8th bit should remain 0, to mark as an unsigned 7bit number
-            } else if (json <= 0 && json >= -63) {
-                buffer.push(json | 0xc0);
             }
-
+            else if (json < 0 && json >= -63) {
+                buffer.push(-json | 0xc0);
+            }
             // if (json == 0) {
             //     buffer.push(TYPE_ZERO);
             //     return;
@@ -324,37 +312,42 @@ function serializeEX(json, buffer, dict, cache) {
                 buffer.push(TYPE_INT8);
                 dv.setInt8(0, json);
                 buffer.push(dv.getUint8(0));
-            } else if (json >= 0 && json <= 255) {
+            }
+            else if (json >= 0 && json <= 255) {
                 buffer.push(TYPE_UINT8);
                 dv.setUint8(0, json);
                 buffer.push(dv.getUint8(0));
-            } else if (json >= -32768 && json < 0) {
+            }
+            else if (json >= -32768 && json < 0) {
                 buffer.push(TYPE_INT16);
                 dv.setInt16(0, json);
                 buffer.push(dv.getUint8(0));
                 buffer.push(dv.getUint8(1));
-            } else if (json >= 0 && json <= 65535) {
+            }
+            else if (json >= 0 && json <= 65535) {
                 buffer.push(TYPE_UINT16);
                 dv.setUint16(0, json);
                 buffer.push(dv.getUint8(0));
                 buffer.push(dv.getUint8(1));
-            } else if (json >= -2147483648 && json < 0) {
+            }
+            else if (json >= -2147483648 && json < 0) {
                 buffer.push(TYPE_INT32);
                 dv.setInt32(0, json);
                 buffer.push(dv.getUint8(0));
                 buffer.push(dv.getUint8(1));
                 buffer.push(dv.getUint8(2));
                 buffer.push(dv.getUint8(3));
-            } else if (json >= 0 && json <= 4294967295) {
+            }
+            else if (json >= 0 && json <= 4294967295) {
                 buffer.push(TYPE_UINT32);
                 dv.setUint32(0, json);
                 buffer.push(dv.getUint8(0));
                 buffer.push(dv.getUint8(1));
                 buffer.push(dv.getUint8(2));
                 buffer.push(dv.getUint8(3));
-            } else if (json < -2147483648) {
+            }
+            else if (json < -2147483648) {
                 buffer.push(TYPE_INT64);
-
                 json = -json;
                 setBigUint64(dv, 0, json);
                 // dv.setBigInt64(0, BigInt(json));
@@ -366,9 +359,9 @@ function serializeEX(json, buffer, dict, cache) {
                 buffer.push(dv.getUint8(5));
                 buffer.push(dv.getUint8(6));
                 buffer.push(dv.getUint8(7));
-            } else if (json > 4294967295) {
+            }
+            else if (json > 4294967295) {
                 buffer.push(TYPE_UINT64);
-
                 setBigUint64(dv, 0, json);
                 // dv.setBigUint64(0, BigInt(json));
                 buffer.push(dv.getUint8(0));
@@ -381,7 +374,8 @@ function serializeEX(json, buffer, dict, cache) {
                 buffer.push(dv.getUint8(7));
             }
             return;
-        } else {
+        }
+        else {
             // if (json >= -3.4e38 && json <= 3.4e38) {
             // buffer.push(TYPE_FLOAT32);
             // dv.setFloat32(0, json);
@@ -394,13 +388,14 @@ function serializeEX(json, buffer, dict, cache) {
             let str = "" + json;
             if (str.length < 6) {
                 buffer.push(TYPE_FLOATSTR);
-                let encoded = encoder.encode(json);
+                let encoded = encoder.encode(String(json));
                 for (var i = 0; i < encoded.byteLength; i++) {
                     // console.log(json + '[' + i + ']', encoded[i]);
                     buffer.push(encoded[i]);
                 }
                 buffer.push(0);
-            } else {
+            }
+            else {
                 buffer.push(TYPE_FLOAT64);
                 dv.setFloat64(0, json);
                 buffer.push(dv.getUint8(0));
@@ -412,18 +407,17 @@ function serializeEX(json, buffer, dict, cache) {
                 buffer.push(dv.getUint8(6));
                 buffer.push(dv.getUint8(7));
             }
-
             // }
             return;
         }
     }
 }
-
-function mapKey(key, buffer, dict, cache, skip) {
+function mapKey(key, buffer, dict, cache, skip = false) {
     let id = dict.count || 0;
     if (key in dict.keys) {
         id = dict.keys[key];
-    } else {
+    }
+    else {
         if (skip) {
             return false;
         }
@@ -431,110 +425,93 @@ function mapKey(key, buffer, dict, cache, skip) {
             serializeEX(key, buffer, dict, cache);
             return false;
         }
-
         id = dict.count;
         dict.count += 1;
         dict.keys[key] = id;
         dict.order.push(key);
     }
-
     buffer.push(TYPE_DICT);
     buffer.push(id);
-
     return true;
 }
-
 function mapDeletionKey(value, buffer, dict, cache) {
     // let skey = key.substr(1, key.length - 1);
     // if (!(skey in dict.keys)) {
     //     mapKey(key, buffer, dict, cache);
     //     return false;
     // }
-
     // let id = dict.keys[skey];
     // buffer.push(TYPE_DEL_DICTKEY);
     // buffer.push(id);
-    if (!Array.isArray(value)) return;
-
+    if (!Array.isArray(value))
+        return;
     buffer.push(TYPE_OBJ_DELETE);
-
     for (var i = 0; i < value.length; i++) {
         serializeEX(value[i], buffer, dict, cache);
     }
-
     buffer.push(TYPE_ENDARR);
-
     return true;
 }
-
 function mapArrayDelta(arr, buffer, dict, cache) {
     if (!Array.isArray(arr)) {
         serializeEX(arr, buffer, dict, cache);
         console.error(" -- Invalid Array Delta: " + typeof arr);
         return;
     }
-
     for (var i = 0; i < arr.length; i++) {
         let change = arr[i];
         let index = change.index;
         let type = change.type;
         let value = change.value;
-
         if (type == "resize") {
             buffer.push(TYPE_ARR_RESIZE);
             buffer.push(value);
             continue;
         }
-
         if (type == "setvalue") {
             buffer.push(TYPE_ARR_SETVALUE);
             buffer.push(index);
-
             serializeEX(value, buffer, dict, cache);
             continue;
         }
-
         if (type == "nested") {
             buffer.push(TYPE_ARR_NESTED);
             buffer.push(index);
-
             mapArrayDelta(value, buffer, dict, cache);
         }
     }
-
     buffer.push(TYPE_ENDARR);
-
     return true;
 }
-
 function serializeObj(json, buffer, dict, cache) {
     for (var key in json) {
         let value = json[key];
         if (key == "$") {
             mapDeletionKey(value, buffer, dict, cache);
             continue;
-        } else if (key[0] == "#") {
+        }
+        else if (key[0] == "#") {
             let startPos = buffer.length;
             let skey = key.substring(1);
             if (!(skey in dict.keys)) {
                 mapKey(skey, buffer, dict, cache);
-            } else {
+            }
+            else {
                 let id = dict.keys[skey];
                 buffer.push(TYPE_DICT);
                 buffer.push(id);
             }
-
             if (!Array.isArray(value)) {
                 serializeEX(value, buffer, dict, cache);
                 let dist = buffer.length - startPos;
                 continue;
             }
-
             buffer.push(TYPE_ARR_DELTA);
             mapArrayDelta(value, buffer, dict, cache);
             let dist = buffer.length - startPos;
             continue;
-        } else {
+        }
+        else {
             // if (key == "state") {
             //     buffer.push(TYPE_KEY_STATE);
             //     buffer.push(Object.keys(value).length);
@@ -560,7 +537,6 @@ function serializeObj(json, buffer, dict, cache) {
             //     // buffer.push(TYPE_ENDOBJ);
             //     continue;
             // }
-
             let startPos = buffer.length;
             mapKey(key, buffer, dict, cache);
             serializeEX(value, buffer, dict, cache);
@@ -568,14 +544,12 @@ function serializeObj(json, buffer, dict, cache) {
         }
     }
 }
-
 function serializeArr(json, buffer, dict, cache) {
     for (var i = 0; i < json.length; i++) {
         let value = json[i];
         serializeEX(value, buffer, dict, cache);
     }
 }
-
 function deserialize(buffer, pos, dict) {
     var ref = {
         buffer,
@@ -584,58 +558,25 @@ function deserialize(buffer, pos, dict) {
     };
     return deserializeEX(ref);
 }
-
 function deserializeEX(ref) {
     let json;
     let arr, i;
     let data;
     let type = ref.buffer.getUint8(ref.pos++);
-
-    //string type of less than 31 characters
-    if (type >> 5 == 5) {
-        let len = type & 0x1f; //filter out the (101) left most bits
-        let arr = [];
-        for (let i = 0; i < len && ref.pos < ref.buffer.byteLength; i++) {
-            let val = ref.buffer.getUint8(ref.pos++);
-            arr.push(val);
-        }
-        data = new Uint8Array(arr);
-        json = decoder.decode(data);
-        return json;
-    } else if (type >> 7 == 0) {
-        json = type & 0x7f;
-        return json;
-    } else if (type >> 6 == 0xc0) {
-        json = type & 0x3f;
-        return json;
-        // else if (json <= 0 && json >= -63) {
-        //     buffer.push(json | 0xc0);
-        // }
-    } else if (type >> 4 == 8) {
-        json = type & 0xf; //extract the length
-        // ref.objLen = json;
-        // ref.objPos = 0;
-        ref.pos--;
-        json = deserializeObj({}, ref);
-        // ref.objLen = 0;
-        // ref.objPos = 0;
-        return json;
-    }
-
     switch (type) {
         case TYPE_EMPTY_OBJ:
             json = {};
-            break;
+            return json;
         case TYPE_EMPTY_ARR:
             json = [];
-            break;
+            return json;
         case TYPE_DICT:
             let id = ref.buffer.getUint8(ref.pos++);
             json = ref.dict.order[id];
-            break;
+            return json;
         case TYPE_NULL:
             json = null;
-            break;
+            return json;
         // case TYPE_ZERO:
         //     json = 0;
         //     break;
@@ -678,25 +619,32 @@ function deserializeEX(ref) {
         // case TYPE_THIRTEEN:
         //     json = 13;
         //     break;
-
         case TYPE_OBJ:
             json = deserializeObj({}, ref);
-            break;
+            return json;
+        case TYPE_ARR_ALLOCATE:
+            let len = ref.buffer.getUint8(ref.pos++);
+            json = [];
+            let value = deserializeEX(ref);
+            for (let i = 0; i < len; i++) {
+                json.push(value);
+            }
+            return json;
         case TYPE_ARR_DELTA:
             let startPos = ref.pos;
             json = deserializeArrDelta([], ref);
             let dist = ref.pos - startPos;
             // console.log("ArrDelta Length: ", dist);
-            break;
+            return json;
         case TYPE_ARR_NESTED:
             json = deserializeArrDelta([], ref);
-            break;
+            return json;
         case TYPE_ARR:
             json = deserializeArr([], ref);
-            break;
+            return json;
         case TYPE_EMPTYSTRING:
             json = "";
-            break;
+            return json;
         //the string exists in the buffer already less than 255 indices away
         case TYPE_STRING_DICT1:
             arr = [];
@@ -711,7 +659,7 @@ function deserializeEX(ref) {
             ref.pos++; //skip null terminated
             data = new Uint8Array(arr);
             json = decoder.decode(data);
-            break;
+            return json;
         //the string exists in the buffer already less than 65,536 indices away
         case TYPE_STRING_DICT2:
             arr = [];
@@ -726,7 +674,7 @@ function deserializeEX(ref) {
             ref.pos += 2; //skip null terminated
             data = new Uint8Array(arr);
             json = decoder.decode(data);
-            break;
+            return json;
         case TYPE_STRING:
             arr = [];
             for (; ref.pos < ref.buffer.byteLength; ref.pos++) {
@@ -740,43 +688,43 @@ function deserializeEX(ref) {
             data = new Uint8Array(arr);
             json = decoder.decode(data);
             // console.log('string: ', json);
-            break;
+            return json;
         case TYPE_TRUE:
             json = true;
-            break;
+            return json;
         case TYPE_FALSE:
             json = false;
-            break;
+            return json;
         case TYPE_DATE:
             json = getBigUint64(ref.buffer, ref.pos);
             // json = ref.buffer.getBigUint64(ref.pos);
             json = new Date(Number(json));
             ref.pos += 8;
-            break;
+            return json;
         case TYPE_INT8:
             json = ref.buffer.getInt8(ref.pos);
             ref.pos++;
-            break;
+            return json;
         case TYPE_UINT8:
             json = ref.buffer.getUint8(ref.pos);
             ref.pos++;
-            break;
+            return json;
         case TYPE_INT16:
             json = ref.buffer.getInt16(ref.pos);
             ref.pos += 2;
-            break;
+            return json;
         case TYPE_UINT16:
             json = ref.buffer.getUint16(ref.pos);
             ref.pos += 2;
-            break;
+            return json;
         case TYPE_INT32:
             json = ref.buffer.getInt32(ref.pos);
             ref.pos += 4;
-            break;
+            return json;
         case TYPE_UINT32:
             json = ref.buffer.getUint32(ref.pos);
             ref.pos += 4;
-            break;
+            return json;
         case TYPE_INT64:
             json = getBigUint64(ref.buffer, ref.pos);
             json = -json;
@@ -784,13 +732,13 @@ function deserializeEX(ref) {
             // json = ref.buffer.getBigInt64(ref.pos);
             json = Number(json);
             ref.pos += 8;
-            break;
+            return json;
         case TYPE_UINT64:
             json = getBigUint64(ref.buffer, ref.pos);
             // json = ref.buffer.getBigUint64(ref.pos);
             json = Number(json);
             ref.pos += 8;
-            break;
+            return json;
         // case TYPE_FLOAT32:
         //     json = ref.buffer.getFloat32(ref.pos);
         //     ref.pos += 4;
@@ -808,32 +756,69 @@ function deserializeEX(ref) {
             data = new Uint8Array(arr);
             json = decoder.decode(data);
             json = parseFloat(json);
-            break;
+            return json;
         case TYPE_FLOAT64:
             json = ref.buffer.getFloat64(ref.pos);
             ref.pos += 8;
-            break;
+            return json;
     }
-
+    //string type of less than 31 characters
+    if (type >> 5 == 5) {
+        let len = type & 0x1f; //filter out the (101) left most bits
+        let arr = [];
+        for (let i = 0; i < len && ref.pos < ref.buffer.byteLength; i++) {
+            let val = ref.buffer.getUint8(ref.pos++);
+            arr.push(val);
+        }
+        data = new Uint8Array(arr);
+        json = decoder.decode(data);
+        return json;
+    }
+    //numbers [0, 127]
+    else if (type >> 7 == 0) {
+        json = type & 0x7f;
+        return json;
+    }
+    //negative numbers [-63,-1]
+    else if (type >> 6 == 3) {
+        json = type & 0x3f;
+        return -json;
+    }
+    //array up to 15 elements
+    else if (type >> 4 == 9) {
+        let len = type & 0xf;
+        json = [];
+        for (let i = 0; i < len; i++) {
+            let value = deserializeEX(ref);
+            json.push(value);
+        }
+        return json;
+    }
+    //object with up to 15 elements
+    else if (type >> 4 == 8) {
+        json = type & 0xf; //extract the length
+        // ref.objLen = json;
+        // ref.objPos = 0;
+        ref.pos--;
+        json = deserializeObj({}, ref);
+        // ref.objLen = 0;
+        // ref.objPos = 0;
+        return json;
+    }
     return json;
 }
-
 function deserializeObj(json, ref) {
     json = json || {};
-
     let objLen = ref.buffer.getUint8(ref.pos++);
-
     if (objLen >> 4 == 8) {
         objLen = objLen & 0xf;
     }
     // if (type == TYPE_ENDOBJ) {
     //     return json;
     // }
-
     // if (ref.objPos >= ref.objLen) {
     //     return json;
     // }
-
     // ref.objPos++;
     // if (
     //     type != TYPE_DICT &&
@@ -844,10 +829,8 @@ function deserializeObj(json, ref) {
     // ) {
     //     throw "E_INVALIDOBJ";
     // }
-
     for (let x = 0; x < objLen; x++) {
         let type = ref.buffer.getUint8(ref.pos++);
-
         // if (type == TYPE_KEY_STATE) {
         //     json["state"] = deserializeObj({}, ref);
         //     continue;
@@ -864,47 +847,35 @@ function deserializeObj(json, ref) {
         //     json["events"] = deserializeObj({}, ref);
         //     continue;
         // }
-
         if (type == TYPE_OBJ_DELETE) {
             json["$"] = deserializeArr([], ref);
             continue;
         }
-
         if (type == TYPE_DICT) {
             let id = ref.buffer.getUint8(ref.pos++);
             let key = ref.dict.order[id];
-
             let isArrDelta = ref.buffer.getUint8(ref.pos) == TYPE_ARR_DELTA;
             let value = deserializeEX(ref);
-
             if (isArrDelta) {
                 key = "#" + key;
             }
-
             json[key] = value;
-
             continue;
         }
-
         //strings greater than 31 bytes or in cache
-        if (
-            type == TYPE_STRING ||
+        if (type == TYPE_STRING ||
             type == TYPE_STRING_DICT1 ||
-            type == TYPE_STRING_DICT2
-        ) {
+            type == TYPE_STRING_DICT2) {
             ref.pos--;
             let key = deserializeEX(ref);
             let isArrDelta = ref.buffer.getUint8(ref.pos) == TYPE_ARR_DELTA;
             let value = deserializeEX(ref);
-
             if (isArrDelta) {
                 key = "#" + key;
             }
-
             json[key] = value;
             continue;
         }
-
         //strings less than 31 bytes
         if (type >> 5 == 5) {
             let len = type & 0x1f; //filter out the (101) left most bits
@@ -913,12 +884,10 @@ function deserializeObj(json, ref) {
                 let val = ref.buffer.getUint8(ref.pos++);
                 arr.push(val);
             }
-            data = new Uint8Array(arr);
+            let data = new Uint8Array(arr);
             let key = decoder.decode(data);
-
             let isArrDelta = ref.buffer.getUint8(ref.pos) == TYPE_ARR_DELTA;
             let value = deserializeEX(ref);
-
             if (isArrDelta) {
                 key = "#" + key;
             }
@@ -926,18 +895,14 @@ function deserializeObj(json, ref) {
             continue;
         }
     }
-
     return json;
     // throw "E_INVALIDOBJ";
 }
-
 function deserializeArrDelta(json, ref) {
     json = json || [];
-
     if (ref.pos >= ref.buffer.byteLength) {
         throw "E_INDEXOUTOFBOUNDS";
     }
-
     let type = ref.buffer.getUint8(ref.pos++);
     let index;
     let value;
@@ -962,30 +927,23 @@ function deserializeArrDelta(json, ref) {
         default:
             break;
     }
-
     let result = deserializeArrDelta(json, ref);
     return result;
 }
-
 function deserializeArr(json, ref) {
     json = json || [];
-
     if (ref.pos >= ref.buffer.byteLength) {
         throw "E_INDEXOUTOFBOUNDS";
     }
-
     let type = ref.buffer.getUint8(ref.pos++);
     if (type == TYPE_ENDARR) {
         return json;
     }
     ref.pos--; //move cursor back to get next value
-
     let value = deserializeEX(ref);
     json.push(value);
-
     return deserializeArr(json, ref);
 }
-
 function encode(json, storedDict) {
     try {
         // console.log("ENCODING: ", JSON.stringify(json, null, 2));
@@ -1001,22 +959,22 @@ function encode(json, storedDict) {
         //console.log("encode json len: " + buffer.length);
         //console.log("encode byte len: ", deflated.length);
         return encoded;
-    } catch (e) {
+    }
+    catch (e) {
         console.error(e);
     }
     return null;
 }
-
 function decode(raw, storedDict) {
     try {
         let dict = createDefaultDict(storedDict);
         dict.frozen = true;
         let abuff = ArrayBuffer.isView(raw) ? raw : raw.buffer;
         var dataview;
-
         try {
             dataview = new DataView(raw);
-        } catch (e) {
+        }
+        catch (e) {
             var buf = new Uint8Array(raw).buffer;
             dataview = new DataView(buf);
         }
@@ -1029,24 +987,23 @@ function decode(raw, storedDict) {
         //console.log("decode byte len: ", raw.byteLength);
         //console.log("decode json len: " + inflated.length);
         return decoded;
-    } catch (e) {
+    }
+    catch (e) {
         console.error(e);
         try {
             let jsonStr = raw.toString();
             let json = JSON.parse(jsonStr);
             return json;
-        } catch (e) {
+        }
+        catch (e) {
             console.error(e);
         }
     }
     return null;
 }
-
 function createDictKeys(dict) {
     for (var i = 0; i < dict.order.length; i++) {
         let key = dict.order[i];
         dict.keys[key] = i;
     }
 }
-
-module.exports = { encode, decode, serialize, deserialize, createDefaultDict };
