@@ -118,9 +118,16 @@ const TYPE_KEY_EVENTS = 215;
 var dvbuff = new ArrayBuffer(16);
 var dv = new DataView(dvbuff);
 
-var defaultDict = null;
+var defaultDict: EncoderDict | null = null;
 
-function createDefaultDict(storedDict) {
+type EncoderDict = {
+    count: number;
+    keys: { [key: string]: number };
+    order: string[];
+    frozen?: boolean;
+}
+
+function createDefaultDict(storedDict?: string[]) {
     if (storedDict) {
         defaultDict = {
             count: storedDict.length,
@@ -133,16 +140,16 @@ function createDefaultDict(storedDict) {
     return defaultDict;
 }
 
-function isObject(obj) {
+function isObject(obj: any): boolean {
     var type = typeof obj;
     return type === "function" || type === "object";
 }
 
-function serialize(json, dict) {
-    let buffer = [];
+function serialize(json: any, dict?: EncoderDict) {
+    let buffer: number[] = [];
     dict = dict || { count: defaultDict?.order?.length || 0, keys: {}, order: [] };
 
-    let cache = {};
+    let cache: { [key: string]: number } = {};
 
     serializeEX(json, buffer, dict, cache);
 
@@ -154,7 +161,7 @@ function serialize(json, dict) {
     return arrBuffer.buffer;
 }
 
-function serializeEX(json, buffer, dict, cache) {
+function serializeEX(json: any, buffer: number[], dict: EncoderDict, cache: { [key: string]: number }) {
     buffer = buffer || [];
     dict = dict || { count: defaultDict?.order?.length || 0, keys: {}, order: [] };
 
@@ -440,7 +447,7 @@ function serializeEX(json, buffer, dict, cache) {
     }
 }
 
-function mapKey(key, buffer, dict, cache, skip = false) {
+function mapKey(key:string, buffer: any[], dict: any, cache: { [key: string]: number }, skip = false) {
     let id = dict.count || 0;
     if (key in dict.keys) {
         id = dict.keys[key];
@@ -465,7 +472,7 @@ function mapKey(key, buffer, dict, cache, skip = false) {
     return true;
 }
 
-function mapDeletionKey(value, buffer, dict, cache) {
+function mapDeletionKey(value: any, buffer: number[], dict: any, cache: { [key: string]: number }) {
     // let skey = key.substr(1, key.length - 1);
     // if (!(skey in dict.keys)) {
     //     mapKey(key, buffer, dict, cache);
@@ -488,7 +495,7 @@ function mapDeletionKey(value, buffer, dict, cache) {
     return true;
 }
 
-function mapArrayDelta(arr, buffer, dict, cache) {
+function mapArrayDelta(arr: any[], buffer: number[], dict: any, cache: { [key: string]: number }) {
     if (!Array.isArray(arr)) {
         serializeEX(arr, buffer, dict, cache);
         console.error(" -- Invalid Array Delta: " + typeof arr);
@@ -528,7 +535,7 @@ function mapArrayDelta(arr, buffer, dict, cache) {
     return true;
 }
 
-function serializeObj(json, buffer, dict, cache) {
+function serializeObj(json: any, buffer: number[], dict: any, cache: { [key: string]: number }) {
     for (var key in json) {
         let value = json[key];
         if (key == "$") {
@@ -590,14 +597,14 @@ function serializeObj(json, buffer, dict, cache) {
     }
 }
 
-function serializeArr(json, buffer, dict, cache) {
+function serializeArr(json: any[], buffer: number[], dict: any, cache: { [key: string]: number }) {
     for (var i = 0; i < json.length; i++) {
         let value = json[i];
         serializeEX(value, buffer, dict, cache);
     }
 }
 
-function deserialize(buffer, pos, dict) {
+function deserialize(buffer: any, pos: number, dict: any) {
     var ref = {
         buffer,
         pos,
@@ -606,7 +613,7 @@ function deserialize(buffer, pos, dict) {
     return deserializeEX(ref);
 }
 
-function deserializeEX(ref) {
+function deserializeEX(ref: { buffer: any; pos: number; dict: any } ): any {
     let json;
     let arr, i;
     let data;
@@ -860,7 +867,7 @@ function deserializeEX(ref) {
     return json;
 }
 
-function deserializeObj(json, ref) {
+function deserializeObj(json: any, ref: { buffer: any; pos: number; dict: any }): any {
     json = json || {};
 
     let objLen = ref.buffer.getUint8(ref.pos++);
@@ -973,7 +980,7 @@ function deserializeObj(json, ref) {
     // throw "E_INVALIDOBJ";
 }
 
-function deserializeArrDelta(json, ref) {
+function deserializeArrDelta(json: any[], ref: { buffer: any; pos: number; dict: any }): any[] {
     json = json || [];
 
     if (ref.pos >= ref.buffer.byteLength) {
@@ -1009,7 +1016,7 @@ function deserializeArrDelta(json, ref) {
     return result;
 }
 
-function deserializeArr(json, ref) {
+function deserializeArr(json: any[], ref: { buffer: any; pos: number; dict: any }): any[] {
     json = json || [];
 
     if (ref.pos >= ref.buffer.byteLength) {
@@ -1028,7 +1035,7 @@ function deserializeArr(json, ref) {
     return deserializeArr(json, ref);
 }
 
-function encode(json, storedDict) {
+function encode(json: any, storedDict?: string[]) {
     try {
         // console.log("ENCODING: ", JSON.stringify(json, null, 2));
         let dict = createDefaultDict(storedDict);
@@ -1049,12 +1056,12 @@ function encode(json, storedDict) {
     return null;
 }
 
-function decode(raw, storedDict) {
+function decode(raw: any, storedDict?: string[]) {
     try {
         let dict = createDefaultDict(storedDict);
         dict.frozen = true;
         let abuff = ArrayBuffer.isView(raw) ? raw : raw.buffer;
-        var dataview;
+        var dataview: any;
 
         try {
             dataview = new DataView(raw);
@@ -1084,7 +1091,7 @@ function decode(raw, storedDict) {
     return null;
 }
 
-function createDictKeys(dict) {
+function createDictKeys(dict: any) {
     for (var i = 0; i < dict.order.length; i++) {
         let key = dict.order[i];
         dict.keys[key] = i;

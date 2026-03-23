@@ -1,6 +1,6 @@
 {
     "name": "acos-json-encoder",
-    "version": "1.0.15",
+    "version": "1.0.17",
     "description": "JSON serializer and deserializer used by ACOS.games",
     "main": "dist/encoder.js",
     "types": "dist/encoder.d.ts",
