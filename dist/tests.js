@@ -1,4 +1,6 @@
-const { encode, decode, createDefaultDict } = require("./encoder");
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const encoder_1 = require("./encoder");
 var defaultDictionary = [
     "room_slug",
     "game_slug",
@@ -516,46 +518,45 @@ let testJSON = [
         },
     },
 ];
-const { unpack, pack, Packr, Unpackr, isNativeAccelerationEnabled, } = require("msgpackr");
 function testEncoding() {
     // example dictionary to match any strings that might appear in JSON
     // this will reduce these strings into two bytes when detected
-    let myDictionary = [
-        "type",
-        "room_slug",
-        "payload",
-        "room",
-        "sequence",
-        "status",
-        "updated",
-        "state",
-        "_qid",
-        "_history",
-        "category",
-        "choices",
-        "round",
-        "stage",
-        "rounds",
-        "maxplayers",
-        "datetime",
-        "next",
-        "id",
-        "events",
-        "q",
-        "timer",
-        "sequence",
-        "end",
-        "seconds",
-        "players",
-        "_choice",
-        "action",
-        "timeseq",
-        "timeleft",
-        "gamestart",
-        "timeseq",
-        "timeend",
-        "timeseconds",
-    ];
+    // let myDictionary = [
+    //     "type",
+    //     "room_slug",
+    //     "payload",
+    //     "room",
+    //     "sequence",
+    //     "status",
+    //     "updated",
+    //     "state",
+    //     "_qid",
+    //     "_history",
+    //     "category",
+    //     "choices",
+    //     "round",
+    //     "stage",
+    //     "rounds",
+    //     "maxplayers",
+    //     "datetime",
+    //     "next",
+    //     "id",
+    //     "events",
+    //     "q",
+    //     "timer",
+    //     "sequence",
+    //     "end",
+    //     "seconds",
+    //     "players",
+    //     "_choice",
+    //     "action",
+    //     "timeseq",
+    //     "timeleft",
+    //     "gamestart",
+    //     "timeseq",
+    //     "timeend",
+    //     "timeseconds",
+    // ];
     // example JSON data to encode/decode
     // let jsonData = {
     //     iobYl: {
@@ -577,206 +578,42 @@ function testEncoding() {
     //         type: "O",
     //     },
     // };
-    if (!isNativeAccelerationEnabled)
-        console.warn("Native acceleration not enabled, verify that install finished properly");
     // use your dictionary
-    createDefaultDict(defaultDictionary);
-    let packer = new Packr({
-        bundleStrings: false,
-        isNativeAccelerationEnabled: true,
-    });
-    let unpacker = new Unpackr({
-        bundleStrings: false,
-        isNativeAccelerationEnabled: true,
-    });
+    (0, encoder_1.createDefaultDict)(defaultDictionary);
     let start = new Date();
-    testJSON = {
-        // room: {
-        //     sequence: 10,
-        //     status: "gameover",
-        //     endtime: 1716346330438,
-        //     updated: 1716346330438,
-        //     empty: [],
-        // },
-        // state: {
-        //     "#history": [
-        //         {
-        //             index: 3,
-        //             type: "setvalue",
-        //             value: 2,
-        //         },
-        //     ],
-        //     round: 4,
-        // },
-        // players: {
-        //     BF7F9T: {
-        //         score: 3,
-        //     },
-        // },
-        // room2: {
-        //     timeend: 1737347757337,
-        // },
-        // payload: {
-        //     _error: "Square is not empty!",
-        //     offset: -2,
-        //     serverTime: 1737353884246,
-        // },
-        // cells: [
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        //     "",
-        // ],
-        // state2: {
-        //     cells: ["", "", "", "", "", "", "", "", ""],
-        // },
-        // events: {
-        //     gameover: {
-        //         type: "winner",
-        //         pick: "team_x",
-        //         strip: [0, 3, 6],
-        //         shortid: "pkHQf",
-        //     },
-        //     $: ["join"],
-        // },
-        // players2: {
-        //     pkHQf: {
-        //         rank: 1,
-        //         score: 100,
-        //     },
-        // },
-        // teams: {
-        //     team_x: {
-        //         rank: 1,
-        //         score: 100,
-        //     },
-        // },
-        room: {
-            next_id: "PLBMJK",
-            timeend: 1737509991080,
-        },
-        state: {
-            "#cells": [
-                {
-                    index: 3,
-                    type: "setvalue",
-                    value: "X",
-                },
-            ],
-        },
-        "#players": [
-            {
-                index: 1,
-                type: "setvalue",
-                value: {
-                    score: 2,
-                },
-            },
-        ],
-    };
+    // testJSON = {
+    //     room: {
+    //         next_id: "PLBMJK",
+    //         timeend: 1737509991080,
+    //     },
+    //     state: {
+    //         "#cells": [
+    //             {
+    //                 index: 3,
+    //                 type: "setvalue",
+    //                 value: "X",
+    //             },
+    //         ],
+    //     },
+    //     "#players": [
+    //         {
+    //             index: 1,
+    //             type: "setvalue",
+    //             value: {
+    //                 score: 2,
+    //             },
+    //         },
+    //     ],
+    // };
     // testJSON = { compact: true, schema: 0 };
     // encode and serialize the data into bytes
-    let jsonEncoded = encode(testJSON);
+    let jsonEncoded = (0, encoder_1.encode)(testJSON);
     // decode the bytes back into a JSON string
-    let decoded = decode(jsonEncoded);
+    let decoded = (0, encoder_1.decode)(jsonEncoded);
     // console.log("acos time:", (new Date() - start));
     start = new Date();
-    let packed = packer.pack(testJSON);
-    let unpacked = unpacker.unpack(packed);
     // console.log("msgp time:", (new Date() - start));
+    console.log("Original JSON:", JSON.stringify(testJSON));
     // validate the original matches the decoded
     if (JSON.stringify(testJSON) == JSON.stringify(decoded)) {
         console.log("Encoding MATCHES");
@@ -787,6 +624,5 @@ function testEncoding() {
     // output byte sizes
     console.log("JSON string size: ", JSON.stringify(testJSON).length);
     console.log("acos encoded JSON size:", jsonEncoded.byteLength);
-    console.log("msgpack encoded JSON size: ", packed.byteLength);
 }
 testEncoding();

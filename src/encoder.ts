@@ -1098,4 +1098,4 @@ function createDictKeys(dict: any) {
     }
 }
 
-export { encode, decode, serialize, deserialize, createDefaultDict };
+export { encode, decode, serialize, deserialize, serializeEX, deserializeEX, createDefaultDict };
