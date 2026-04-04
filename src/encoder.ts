@@ -1,6 +1,9 @@
 const encoderVersion = "1.2";
 console.log("ENCODER VERSION = " + encoderVersion);
 
+
+
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -118,26 +121,31 @@ const TYPE_KEY_EVENTS = 215;
 var dvbuff = new ArrayBuffer(16);
 var dv = new DataView(dvbuff);
 
-var defaultDict: EncoderDict | null = null;
+let defaultDictionary = ['type', 'payload'];
+let internalDictionary: EncoderDict | null = null;
 
-type EncoderDict = {
-    count: number;
-    keys: { [key: string]: number };
-    order: string[];
-    frozen?: boolean;
+
+export function getDictionary() {
+    return internalDictionary;
 }
 
 function createDefaultDict(storedDict?: string[]) {
     if (storedDict) {
-        defaultDict = {
+        internalDictionary = {
             count: storedDict.length,
             keys: {},
             order: storedDict,
+            frozen: true
         };
-        createDictKeys(defaultDict);
+        createDictKeys(internalDictionary);
+        internalDictionary.frozen = true;
     }
 
-    return defaultDict;
+    if (!internalDictionary) {
+        internalDictionary = createDefaultDict(defaultDictionary);
+    }
+
+    return internalDictionary;
 }
 
 function isObject(obj: any): boolean {
@@ -146,24 +154,18 @@ function isObject(obj: any): boolean {
 }
 
 function serialize(json: any, dict?: EncoderDict) {
-    let buffer: number[] = [];
-    dict = dict || { count: defaultDict?.order?.length || 0, keys: {}, order: [] };
+    const buffer: number[] = [];
+    dict = dict || { count: internalDictionary?.order?.length || 0, keys: {}, order: [] };
 
-    let cache: { [key: string]: number } = {};
+    const cache: { [key: string]: number } = {};
 
     serializeEX(json, buffer, dict, cache);
 
-    let arrBuffer = Uint8Array.from(buffer);
-    // for (var i = 0; i < buffer.length; i++) {
-    //     arrBuffer[i] = buffer[i];
-    // }
-
-    return arrBuffer.buffer;
+    return new Uint8Array(buffer).buffer;
 }
 
 function serializeEX(json: any, buffer: number[], dict: EncoderDict, cache: { [key: string]: number }) {
-    buffer = buffer || [];
-    dict = dict || { count: defaultDict?.order?.length || 0, keys: {}, order: [] };
+    dict = dict || { count: internalDictionary?.order?.length || 0, keys: {}, order: [] };
 
     if (typeof json === "undefined" || json == null) {
         buffer.push(TYPE_NULL);
@@ -222,12 +224,12 @@ function serializeEX(json: any, buffer: number[], dict: EncoderDict, cache: { [k
     }
 
     if (isObject(json)) {
-        if (Object.keys(json).length == 0) {
+        const keys = Object.keys(json);
+        if (keys.length == 0) {
             buffer.push(TYPE_EMPTY_OBJ);
             return;
         }
 
-        let keys = Object.keys(json);
         if (keys.length <= 15) {
             buffer.push(128 | keys.length);
             serializeObj(json, buffer, dict, cache);
@@ -254,16 +256,13 @@ function serializeEX(json: any, buffer: number[], dict: EncoderDict, cache: { [k
 
         if (json in cache) {
             let pos = cache[json];
-            // console.log("Found cache for:", json, "at", pos);
             if (pos <= 255) {
                 buffer.push(TYPE_STRING_DICT1);
-                dv.setUint8(0, pos);
-                buffer.push(dv.getUint8(0));
+                buffer.push(pos);
             } else {
                 buffer.push(TYPE_STRING_DICT2);
-                dv.setUint16(0, pos);
-                buffer.push(dv.getUint8(0));
-                buffer.push(dv.getUint8(1));
+                buffer.push((pos >>> 8) & 0xff);
+                buffer.push(pos & 0xff);
             }
 
             return;
@@ -350,36 +349,30 @@ function serializeEX(json: any, buffer: number[], dict: EncoderDict, cache: { [k
             // }
             else if (json >= -128 && json < 0) {
                 buffer.push(TYPE_INT8);
-                dv.setInt8(0, json);
-                buffer.push(dv.getUint8(0));
+                buffer.push(json & 0xff);
             } else if (json >= 0 && json <= 255) {
                 buffer.push(TYPE_UINT8);
-                dv.setUint8(0, json);
-                buffer.push(dv.getUint8(0));
+                buffer.push(json);
             } else if (json >= -32768 && json < 0) {
                 buffer.push(TYPE_INT16);
-                dv.setInt16(0, json);
-                buffer.push(dv.getUint8(0));
-                buffer.push(dv.getUint8(1));
+                buffer.push((json >> 8) & 0xff);
+                buffer.push(json & 0xff);
             } else if (json >= 0 && json <= 65535) {
                 buffer.push(TYPE_UINT16);
-                dv.setUint16(0, json);
-                buffer.push(dv.getUint8(0));
-                buffer.push(dv.getUint8(1));
+                buffer.push((json >>> 8) & 0xff);
+                buffer.push(json & 0xff);
             } else if (json >= -2147483648 && json < 0) {
                 buffer.push(TYPE_INT32);
-                dv.setInt32(0, json);
-                buffer.push(dv.getUint8(0));
-                buffer.push(dv.getUint8(1));
-                buffer.push(dv.getUint8(2));
-                buffer.push(dv.getUint8(3));
+                buffer.push((json >>> 24) & 0xff);
+                buffer.push((json >>> 16) & 0xff);
+                buffer.push((json >>> 8) & 0xff);
+                buffer.push(json & 0xff);
             } else if (json >= 0 && json <= 4294967295) {
                 buffer.push(TYPE_UINT32);
-                dv.setUint32(0, json);
-                buffer.push(dv.getUint8(0));
-                buffer.push(dv.getUint8(1));
-                buffer.push(dv.getUint8(2));
-                buffer.push(dv.getUint8(3));
+                buffer.push((json >>> 24) & 0xff);
+                buffer.push((json >>> 16) & 0xff);
+                buffer.push((json >>> 8) & 0xff);
+                buffer.push(json & 0xff);
             } else if (json < -2147483648) {
                 buffer.push(TYPE_INT64);
 
@@ -447,9 +440,9 @@ function serializeEX(json: any, buffer: number[], dict: EncoderDict, cache: { [k
     }
 }
 
-function mapKey(key:string, buffer: any[], dict: any, cache: { [key: string]: number }, skip = false) {
+function mapKey(key: string, buffer: number[], dict: any, cache: { [key: string]: number }, skip = false) {
     let id = dict.count || 0;
-    if (key in dict.keys) {
+    if (dict?.keys && key in dict.keys) {
         id = dict.keys[key];
     } else {
         if (skip) {
@@ -459,7 +452,7 @@ function mapKey(key:string, buffer: any[], dict: any, cache: { [key: string]: nu
             serializeEX(key, buffer, dict, cache);
             return false;
         }
-
+        console.log(dict)
         id = dict.count;
         dict.count += 1;
         dict.keys[key] = id;
@@ -983,56 +976,51 @@ function deserializeObj(json: any, ref: { buffer: any; pos: number; dict: any })
 function deserializeArrDelta(json: any[], ref: { buffer: any; pos: number; dict: any }): any[] {
     json = json || [];
 
-    if (ref.pos >= ref.buffer.byteLength) {
-        throw "E_INDEXOUTOFBOUNDS";
+    while (true) {
+        if (ref.pos >= ref.buffer.byteLength) {
+            throw "E_INDEXOUTOFBOUNDS";
+        }
+        const type = ref.buffer.getUint8(ref.pos++);
+        switch (type) {
+            case TYPE_ENDARR:
+                return json;
+            case TYPE_ARR_RESIZE: {
+                const value = ref.buffer.getUint8(ref.pos++);
+                json.push({ value, type: "resize" });
+                break;
+            }
+            case TYPE_ARR_SETVALUE: {
+                const index = ref.buffer.getUint8(ref.pos++);
+                const value = deserializeEX(ref);
+                json.push({ index, type: "setvalue", value });
+                break;
+            }
+            case TYPE_ARR_NESTED: {
+                const index = ref.buffer.getUint8(ref.pos++);
+                const value = deserializeArrDelta([], ref);
+                json.push({ index, type: "nested", value });
+                break;
+            }
+            default:
+                break;
+        }
     }
-
-    let type = ref.buffer.getUint8(ref.pos++);
-    let index;
-    let value;
-    switch (type) {
-        case TYPE_ENDARR:
-            return json;
-            break;
-        case TYPE_ARR_RESIZE:
-            value = ref.buffer.getUint8(ref.pos++);
-            json.push({ value, type: "resize" });
-            break;
-        case TYPE_ARR_SETVALUE:
-            index = ref.buffer.getUint8(ref.pos++);
-            value = deserializeEX(ref);
-            json.push({ index, type: "setvalue", value });
-            break;
-        case TYPE_ARR_NESTED:
-            index = ref.buffer.getUint8(ref.pos++);
-            value = deserializeArrDelta([], ref);
-            json.push({ index, type: "nested", value });
-            break;
-        default:
-            break;
-    }
-
-    let result = deserializeArrDelta(json, ref);
-    return result;
 }
 
 function deserializeArr(json: any[], ref: { buffer: any; pos: number; dict: any }): any[] {
     json = json || [];
 
-    if (ref.pos >= ref.buffer.byteLength) {
-        throw "E_INDEXOUTOFBOUNDS";
+    while (true) {
+        if (ref.pos >= ref.buffer.byteLength) {
+            throw "E_INDEXOUTOFBOUNDS";
+        }
+        const type = ref.buffer.getUint8(ref.pos++);
+        if (type === TYPE_ENDARR) {
+            return json;
+        }
+        ref.pos--;
+        json.push(deserializeEX(ref));
     }
-
-    let type = ref.buffer.getUint8(ref.pos++);
-    if (type == TYPE_ENDARR) {
-        return json;
-    }
-    ref.pos--; //move cursor back to get next value
-
-    let value = deserializeEX(ref);
-    json.push(value);
-
-    return deserializeArr(json, ref);
 }
 
 function encode(json: any, storedDict?: string[]) {

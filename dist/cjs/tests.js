@@ -3,9 +3,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-const encoder_1 = require("./encoder");
 const protocol_1 = require("./protocol");
-const protocol_test_js_1 = __importDefault(require("./tests/protocol-test.js"));
+const protocol_test_1 = __importDefault(require("./tests/protocol-test"));
 var defaultDictionary = [
     "room_slug",
     "game_slug",
@@ -217,8 +216,7 @@ let testJSON = [
         name: "Test Game 1",
     },
     {
-        type: "join",
-        room_slug: "B89HJ",
+        type: "update",
         payload: {
             room: {
                 room_slug: "B89HJ",
@@ -227,19 +225,17 @@ let testJSON = [
                 starttime: 1716346322864,
                 endtime: 0,
                 updated: 1716346322873,
+                next_id: 10,
+                next_action: "pick",
+                events: [
+                    { type: "join", payload: ["8CCkf", "pkHQf"] },
+                ],
             },
             state: {},
-            next: {},
-            events: {
-                join: ["8CCkf", "pkHQf"],
-            },
-            timer: {
-                sequence: 0,
-            },
-            players: {
-                "8CCkf": {
-                    displayname: "joe",
+            players: [
+                {
                     shortid: "8CCkf",
+                    displayname: "joe",
                     rank: 2,
                     score: 0,
                     rating: 3543,
@@ -247,7 +243,7 @@ let testJSON = [
                     countrycode: "US",
                     teamid: "team_o",
                 },
-                pkHQf: {
+                {
                     displayname: "IncriminatingSquab",
                     shortid: "pkHQf",
                     rank: 2,
@@ -257,9 +253,10 @@ let testJSON = [
                     countrycode: "US",
                     teamid: "team_x",
                 },
-            },
-            teams: {
-                team_o: {
+            ],
+            teams: [
+                {
+                    team_slug: "team_o",
                     name: "Team O",
                     color: "#1187fd",
                     order: 0,
@@ -267,7 +264,8 @@ let testJSON = [
                     rank: 2,
                     score: 0,
                 },
-                team_x: {
+                {
+                    team_slug: "team_x",
                     name: "Team X",
                     color: "#dd7575",
                     order: 1,
@@ -275,22 +273,22 @@ let testJSON = [
                     rank: 2,
                     score: 0,
                 },
-            },
+            ],
         },
     },
     {
         type: "update",
-        room_slug: "B89HJ",
         payload: {
             room: {
                 sequence: 3,
                 updated: 1716346323031,
             },
-            players: {
-                pkHQf: {
+            players: [
+                {
+                    shortid: "pkHQf",
                     ready: true,
                 },
-            },
+            ],
         },
     },
     {
@@ -562,41 +560,69 @@ function testEncoding() {
     //     "timeend",
     //     "timeseconds",
     // ];
+    // // use your dictionary
+    // createDefaultDict(defaultDictionary);
+    // let start = new Date();
+    // // testJSON = { compact: true, schema: 0 };
+    // let jsonEncoded2 = encode(testJSON);
+    // console.time("Encoding and decoding time");
+    // // encode and serialize the data into bytes
+    // console.time("Encoding time");
+    // let jsonEncoded = encode(testJSON);
+    // console.timeEnd("Encoding time");
+    // // decode the bytes back into a JSON string
+    // console.time("Decoding time");
+    // let decoded = decode(jsonEncoded);
+    // console.timeEnd("Decoding time");
+    // console.timeEnd("Encoding and decoding time");
+    // // console.log("acos time:", (new Date() - start));
+    // start = new Date();
+    // // console.log("msgp time:", (new Date() - start));
+    // console.log("Original JSON:", JSON.stringify(testJSON));
+    // // validate the original matches the decoded
+    // if (JSON.stringify(testJSON) == JSON.stringify(decoded)) {
+    //     console.log("Encoding MATCHES");
+    // } else {
+    //     console.log(
+    //         "Encoding not match",
+    //         "\nBefore:",
+    //         JSON.stringify(testJSON),
+    //         "\nAfter :",
+    //         JSON.stringify(decoded)
+    //     );
+    // }
+    // // output byte sizes
+    // console.log("JSON string size: ", Buffer.from(JSON.stringify(testJSON)).length);
+    // console.log("acos encoded JSON size:", jsonEncoded.byteLength);
+}
+function test() {
+    // initProtocols();
     let ptypes = {
         "update": 2
     };
     let protocols = {
-        "update": protocol_test_js_1.default
+        "update": { schema: 0, protocol: protocol_test_1.default }
     };
-    (0, protocol_1.initProtocols)(ptypes, protocols);
-    // use your dictionary
-    (0, encoder_1.createDefaultDict)(defaultDictionary);
-    let start = new Date();
-    // testJSON = { compact: true, schema: 0 };
-    let jsonEncoded2 = (0, encoder_1.encode)(testJSON);
-    console.time("Encoding and decoding time");
-    // encode and serialize the data into bytes
-    console.time("Encoding time");
-    let jsonEncoded = (0, encoder_1.encode)(testJSON);
-    console.timeEnd("Encoding time");
-    // decode the bytes back into a JSON string
-    console.time("Decoding time");
-    let decoded = (0, encoder_1.decode)(jsonEncoded);
-    console.timeEnd("Decoding time");
-    console.timeEnd("Encoding and decoding time");
-    // console.log("acos time:", (new Date() - start));
-    start = new Date();
-    // console.log("msgp time:", (new Date() - start));
-    console.log("Original JSON:", JSON.stringify(testJSON));
-    // validate the original matches the decoded
-    if (JSON.stringify(testJSON) == JSON.stringify(decoded)) {
-        console.log("Encoding MATCHES");
+    (0, protocol_1.initProtocols)(protocols);
+    for (let i = 0; i < 1; i++) {
+        console.time("Encoding " + i);
+        let encoded2 = (0, protocol_1.protoEncode)(testJSON[1], defaultDictionary, protocols["update"]);
+        console.timeEnd("Encoding " + i);
+        console.time("Decoding " + i);
+        let decoded2 = (0, protocol_1.protoDecode)(encoded2, defaultDictionary);
+        console.timeEnd("Decoding " + i);
     }
-    else {
-        console.log("Encoding not match", "\nBefore:", JSON.stringify(testJSON), "\nAfter :", JSON.stringify(decoded));
-    }
-    // output byte sizes
-    console.log("JSON string size: ", Buffer.from(JSON.stringify(testJSON)).length);
-    console.log("acos encoded JSON size:", jsonEncoded.byteLength);
+    console.time("Encoding");
+    let encoded = (0, protocol_1.protoEncode)(testJSON[1], defaultDictionary, protocols["update"]);
+    console.timeEnd("Encoding");
+    console.time("Decoding");
+    let decoded = (0, protocol_1.protoDecode)(encoded, defaultDictionary);
+    console.timeEnd("Decoding");
+    console.log("Encoded (original size):", JSON.stringify(testJSON[1]).length, "bytes");
+    console.log("Encoded (size):", encoded.byteLength, "bytes");
+    console.log("Original:", JSON.stringify(testJSON[1]));
+    console.log("Decoded: ", JSON.stringify(decoded));
+    console.log("Is Match:", JSON.stringify(testJSON[1]) === JSON.stringify(decoded));
 }
-testEncoding();
+test();
+// testEncoding();

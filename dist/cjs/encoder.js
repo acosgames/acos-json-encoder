@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.getDictionary = getDictionary;
 exports.encode = encode;
 exports.decode = decode;
 exports.serialize = serialize;
@@ -111,17 +112,26 @@ const TYPE_KEY_EVENTS = 215;
 // const TYPE_KEY_RULES_EMPTY = 196;
 var dvbuff = new ArrayBuffer(16);
 var dv = new DataView(dvbuff);
-var defaultDict = null;
+let defaultDictionary = ['type', 'payload'];
+let internalDictionary = null;
+function getDictionary() {
+    return internalDictionary;
+}
 function createDefaultDict(storedDict) {
     if (storedDict) {
-        defaultDict = {
+        internalDictionary = {
             count: storedDict.length,
             keys: {},
             order: storedDict,
+            frozen: true
         };
-        createDictKeys(defaultDict);
+        createDictKeys(internalDictionary);
+        internalDictionary.frozen = true;
     }
-    return defaultDict;
+    if (!internalDictionary) {
+        internalDictionary = createDefaultDict(defaultDictionary);
+    }
+    return internalDictionary;
 }
 function isObject(obj) {
     var type = typeof obj;
@@ -129,13 +139,13 @@ function isObject(obj) {
 }
 function serialize(json, dict) {
     const buffer = [];
-    dict = dict || { count: defaultDict?.order?.length || 0, keys: {}, order: [] };
+    dict = dict || { count: internalDictionary?.order?.length || 0, keys: {}, order: [] };
     const cache = {};
     serializeEX(json, buffer, dict, cache);
     return new Uint8Array(buffer).buffer;
 }
 function serializeEX(json, buffer, dict, cache) {
-    dict = dict || { count: defaultDict?.order?.length || 0, keys: {}, order: [] };
+    dict = dict || { count: internalDictionary?.order?.length || 0, keys: {}, order: [] };
     if (typeof json === "undefined" || json == null) {
         buffer.push(TYPE_NULL);
         return;
@@ -402,7 +412,7 @@ function serializeEX(json, buffer, dict, cache) {
 }
 function mapKey(key, buffer, dict, cache, skip = false) {
     let id = dict.count || 0;
-    if (key in dict.keys) {
+    if (dict?.keys && key in dict.keys) {
         id = dict.keys[key];
     }
     else {
@@ -413,6 +423,7 @@ function mapKey(key, buffer, dict, cache, skip = false) {
             serializeEX(key, buffer, dict, cache);
             return false;
         }
+        console.log(dict);
         id = dict.count;
         dict.count += 1;
         dict.keys[key] = id;
