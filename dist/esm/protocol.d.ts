@@ -1,3 +1,3 @@
 export declare function initProtocols(_messageProtocols: ProtocolSchema): void;
-export declare function protoEncode(data: ProtocolHeader, dictionary: string[] | null, protocol: any): ArrayBuffer;
-export declare function protoDecode(data: any, dictionary: any): any;
+export declare function protoEncode(data: any, dictionary?: string[] | null | undefined): any;
+export declare function protoDecode(data: any, dictionary?: string[] | undefined | null): any;

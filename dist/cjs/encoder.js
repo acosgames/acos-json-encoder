@@ -346,30 +346,36 @@ function serializeEX(json, buffer, dict, cache) {
             }
             else if (json < -2147483648) {
                 buffer.push(TYPE_INT64);
-                json = -json;
-                setBigUint64(dv, 0, json);
-                // dv.setBigInt64(0, BigInt(json));
-                buffer.push(dv.getUint8(0));
-                buffer.push(dv.getUint8(1));
-                buffer.push(dv.getUint8(2));
-                buffer.push(dv.getUint8(3));
-                buffer.push(dv.getUint8(4));
-                buffer.push(dv.getUint8(5));
-                buffer.push(dv.getUint8(6));
-                buffer.push(dv.getUint8(7));
+                const mag = -json;
+                const magHi = Math.floor(mag / 0x100000000);
+                const magLo = mag >>> 0;
+                const iByteCount = magHi > 0xFFFF ? 7 : magHi > 0xFF ? 6 : 5;
+                buffer.push(iByteCount);
+                if (iByteCount >= 7)
+                    buffer.push((magHi >>> 16) & 0xFF);
+                if (iByteCount >= 6)
+                    buffer.push((magHi >>> 8) & 0xFF);
+                buffer.push(magHi & 0xFF);
+                buffer.push((magLo >>> 24) & 0xFF);
+                buffer.push((magLo >>> 16) & 0xFF);
+                buffer.push((magLo >>> 8) & 0xFF);
+                buffer.push(magLo & 0xFF);
             }
             else if (json > 4294967295) {
                 buffer.push(TYPE_UINT64);
-                setBigUint64(dv, 0, json);
-                // dv.setBigUint64(0, BigInt(json));
-                buffer.push(dv.getUint8(0));
-                buffer.push(dv.getUint8(1));
-                buffer.push(dv.getUint8(2));
-                buffer.push(dv.getUint8(3));
-                buffer.push(dv.getUint8(4));
-                buffer.push(dv.getUint8(5));
-                buffer.push(dv.getUint8(6));
-                buffer.push(dv.getUint8(7));
+                const uHi = Math.floor(json / 0x100000000);
+                const uLo = json >>> 0;
+                const uByteCount = uHi > 0xFFFF ? 7 : uHi > 0xFF ? 6 : 5;
+                buffer.push(uByteCount);
+                if (uByteCount >= 7)
+                    buffer.push((uHi >>> 16) & 0xFF);
+                if (uByteCount >= 6)
+                    buffer.push((uHi >>> 8) & 0xFF);
+                buffer.push(uHi & 0xFF);
+                buffer.push((uLo >>> 24) & 0xFF);
+                buffer.push((uLo >>> 16) & 0xFF);
+                buffer.push((uLo >>> 8) & 0xFF);
+                buffer.push(uLo & 0xFF);
             }
             return;
         }
@@ -451,6 +457,56 @@ function mapDeletionKey(value, buffer, dict, cache) {
     buffer.push(TYPE_ENDARR);
     return true;
 }
+const DELTA_END = 0;
+const DELTA_RESIZE = 1;
+const DELTA_SET = 2;
+const DELTA_PATCH = 3;
+const DELTA_SETRANGE = 4;
+const DELTA_FILL = 5;
+const DELTA_REPLACE = 6;
+function encodeArrayDelta(arr, buffer, dictionary, cache) {
+    for (let i = 0; i < arr.length; i++) {
+        const d = arr[i];
+        switch (d.op) {
+            case 'resize':
+                buffer.push(DELTA_RESIZE);
+                serializeEX(d.value, buffer, dictionary, cache);
+                break;
+            case 'set':
+                buffer.push(DELTA_SET);
+                buffer.push(d.index);
+                serializeEX(d.value, buffer, dictionary, cache);
+                break;
+            case 'patch':
+                buffer.push(DELTA_PATCH);
+                buffer.push(d.index);
+                serializeEX(d.value, buffer, dictionary, cache);
+                break;
+            case 'setrange':
+                buffer.push(DELTA_SETRANGE);
+                buffer.push(d.index);
+                serializeEX(d.values.length, buffer, dictionary, cache);
+                for (let j = 0; j < d.values.length; j++) {
+                    serializeEX(d.values[j], buffer, dictionary, cache);
+                }
+                break;
+            case 'fill':
+                buffer.push(DELTA_FILL);
+                buffer.push(d.index);
+                serializeEX(d.length, buffer, dictionary, cache);
+                serializeEX(d.value, buffer, dictionary, cache);
+                break;
+            case 'replace':
+                buffer.push(DELTA_REPLACE);
+                serializeEX(d.values.length, buffer, dictionary, cache);
+                for (let j = 0; j < d.values.length; j++) {
+                    serializeEX(d.values[j], buffer, dictionary, cache);
+                }
+                break;
+        }
+    }
+    buffer.push(TYPE_ENDARR);
+}
 function mapArrayDelta(arr, buffer, dict, cache) {
     if (!Array.isArray(arr)) {
         serializeEX(arr, buffer, dict, cache);
@@ -506,7 +562,8 @@ function serializeObj(json, buffer, dict, cache) {
                 continue;
             }
             buffer.push(TYPE_ARR_DELTA);
-            mapArrayDelta(value, buffer, dict, cache);
+            encodeArrayDelta(value, buffer, dict, cache);
+            // mapArrayDelta(value, buffer, dict, cache);
             let dist = buffer.length - startPos;
             continue;
         }
@@ -631,12 +688,12 @@ function deserializeEX(ref) {
             return json;
         case TYPE_ARR_DELTA:
             let startPos = ref.pos;
-            json = deserializeArrDelta([], ref);
+            json = decodeArrayDelta(ref); // deserializeArrDelta([], ref);
             let dist = ref.pos - startPos;
             // console.log("ArrDelta Length: ", dist);
             return json;
         case TYPE_ARR_NESTED:
-            json = deserializeArrDelta([], ref);
+            json = decodeArrayDelta(ref); // deserializeArrDelta([], ref);
             return json;
         case TYPE_ARR:
             json = deserializeArr([], ref);
@@ -724,20 +781,24 @@ function deserializeEX(ref) {
             json = ref.buffer.getUint32(ref.pos);
             ref.pos += 4;
             return json;
-        case TYPE_INT64:
-            json = getBigUint64(ref.buffer, ref.pos);
-            json = -json;
-            // json = getBigInt64(ref.buffer, ref.pos);
-            // json = ref.buffer.getBigInt64(ref.pos);
-            json = Number(json);
-            ref.pos += 8;
+        case TYPE_INT64: {
+            const iByteCount = ref.buffer.getUint8(ref.pos++);
+            let iHi = 0;
+            for (let i = iByteCount - 4; i > 0; i--)
+                iHi = (iHi << 8) | ref.buffer.getUint8(ref.pos++);
+            json = -((iHi * 0x100000000) + ref.buffer.getUint32(ref.pos));
+            ref.pos += 4;
             return json;
-        case TYPE_UINT64:
-            json = getBigUint64(ref.buffer, ref.pos);
-            // json = ref.buffer.getBigUint64(ref.pos);
-            json = Number(json);
-            ref.pos += 8;
+        }
+        case TYPE_UINT64: {
+            const uByteCount = ref.buffer.getUint8(ref.pos++);
+            let uHi = 0;
+            for (let i = uByteCount - 4; i > 0; i--)
+                uHi = (uHi << 8) | ref.buffer.getUint8(ref.pos++);
+            json = (uHi * 0x100000000) + ref.buffer.getUint32(ref.pos);
+            ref.pos += 4;
             return json;
+        }
         // case TYPE_FLOAT32:
         //     json = ref.buffer.getFloat32(ref.pos);
         //     ref.pos += 4;
@@ -897,6 +958,59 @@ function deserializeObj(json, ref) {
     return json;
     // throw "E_INVALIDOBJ";
 }
+function decodeArrayDelta(ref) {
+    let arr = [];
+    while (true) {
+        const op = ref.buffer.getUint8(ref.pos++);
+        if (op === TYPE_ENDARR)
+            break;
+        switch (op) {
+            case DELTA_RESIZE: {
+                const value = deserializeEX(ref);
+                arr.push({ op: 'resize', value });
+                break;
+            }
+            case DELTA_SET: {
+                const index = ref.buffer.getUint8(ref.pos++);
+                const value = deserializeEX(ref);
+                arr.push({ op: 'set', index, value });
+                break;
+            }
+            case DELTA_PATCH: {
+                const index = ref.buffer.getUint8(ref.pos++);
+                // const subType = ref.buffer.getUint8(ref.pos++);
+                const value = deserializeEX(ref);
+                arr.push({ op: 'patch', index, value });
+                break;
+            }
+            case DELTA_SETRANGE: {
+                const index = ref.buffer.getUint8(ref.pos++);
+                const count = deserializeEX(ref);
+                const values = [];
+                for (let j = 0; j < count; j++)
+                    values.push(deserializeEX(ref));
+                arr.push({ op: 'setrange', index, values });
+                break;
+            }
+            case DELTA_FILL: {
+                const index = ref.buffer.getUint8(ref.pos++);
+                const length = deserializeEX(ref);
+                const value = deserializeEX(ref);
+                arr.push({ op: 'fill', index, length, value });
+                break;
+            }
+            case DELTA_REPLACE: {
+                const count = deserializeEX(ref);
+                const values = [];
+                for (let j = 0; j < count; j++)
+                    values.push(deserializeEX(ref));
+                arr.push({ op: 'replace', values });
+                break;
+            }
+        }
+    }
+    return arr;
+}
 function deserializeArrDelta(json, ref) {
     json = json || [];
     while (true) {
@@ -1006,3 +1120,4 @@ function createDictKeys(dict) {
         dict.keys[key] = i;
     }
 }
+//# sourceMappingURL=encoder.js.map

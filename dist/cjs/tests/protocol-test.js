@@ -1,52 +1,84 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const Player = {
-    "displayname": 2,
-    "shortid": 3,
-    "portraitid": 4,
-    "countrycode": 5,
-    "teamid": 6,
-    "rank": 7,
-    "score": 8,
-    "ready": 9,
-    "rating": 10
+    "info": {
+        "$byte": 1,
+        "$object": {
+            "id": 1,
+            "displayname": 2,
+            "shortid": 3,
+            "portraitid": 4,
+            "countrycode": 5,
+            "teamid": 6,
+            "rating": 7,
+        }
+    },
+    "stats": {
+        "$byte": 2,
+        "$object": {}
+    },
+    "attr": 3,
+    "rank": 4,
+    "score": 5
 };
 const Team = {
-    "team_slug": 2,
-    "name": 3,
-    "color": 4,
-    "order": 5,
-    "players": 6,
-    "rank": 7,
-    "score": 8
+    "info": {
+        "$byte": 1,
+        "$object": {
+            "team_slug": 1,
+            "name": 2,
+            "color": 3,
+            "order": 4,
+        }
+    },
+    "players": {
+        "$byte": 2
+    },
+    "rank": 3,
+    "score": 4,
+    "attr": 5,
+    "#players": 6
 };
 const PROTOCOL = {
     "room": {
         "$byte": 2,
         "$object": {
-            "room_slug": 2,
-            "starttime": 3,
-            "endtime": 4,
-            "sequence": 5,
-            "updated": 6,
-            "next_player": 7,
-            "next_team": 8,
-            "next_id": 9,
-            "next_action": 10,
-            "timeend": 11,
-            "timesec": 12,
-            "status": 13,
-            "isreplay": 14,
-            "players": 15,
-            "teams": 16,
-            "events": {
-                "$byte": 17,
-                "$array": {
-                    "type": 2,
-                    "payload": 3
+            "timer": {
+                "$byte": 1,
+                "$object": {
+                    "starttime": 1,
+                    "updated": 2,
+                    "endtime": 3,
+                    "timesec": 4,
+                    "timeend": 5,
+                    "sequence": 6,
                 }
             },
-            "meta": 18
+            "next": {
+                "$byte": 2,
+                "$object": {
+                    "next_player": 1,
+                    "next_team": 2,
+                    "next_action": 3,
+                }
+            },
+            "status": 3,
+            "events": {
+                "$byte": 4,
+                "$array": {
+                    "type": 1,
+                    "payload": 2
+                }
+            },
+            "meta": {
+                "$byte": 5,
+                "$object": {
+                    "room_slug": 1,
+                    "isreplay": 2,
+                    "players": 3,
+                    "teams": 4,
+                }
+            }
         }
     },
     "teams": {
@@ -57,28 +89,7 @@ const PROTOCOL = {
         "$byte": 5,
         "$array": Player
     },
-    "state": 6,
-    "#players": {
-        "$byte": 7,
-        "$array": {
-            "index": 2,
-            "type": 3,
-            "value": {
-                "$byte": 4,
-                "$object": Player
-            }
-        }
-    },
-    "#teams": {
-        "$byte": 8,
-        "$array": {
-            "index": 2,
-            "type": 3,
-            "value": {
-                "$byte": 4,
-                "$object": Team
-            }
-        }
-    }
+    "state": 6
 };
 exports.default = PROTOCOL;
+//# sourceMappingURL=protocol-test.js.map

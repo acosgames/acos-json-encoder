@@ -1,25 +1,20 @@
 {
     "name": "acos-json-encoder",
-    "version": "1.0.19",
+    "version": "1.2.2",
     "description": "JSON serializer and deserializer used by ACOS.games",
-    "main": "dist/cjs/encoder.js",
-    "module": "dist/esm/encoder.js",
-    "types": "dist/cjs/encoder.d.ts",
+    "main": "dist/cjs/index.js",
+    "module": "dist/esm/index.js",
+    "types": "dist/cjs/index.d.ts",
     "exports": {
         ".": {
-            "import": "./dist/esm/encoder.js",
-            "require": "./dist/cjs/encoder.js",
-            "types": "./dist/cjs/encoder.d.ts"
-        },
-        "./protocol": {
-            "import": "./dist/esm/protocol.js",
-            "require": "./dist/cjs/protocol.js",
-            "types": "./dist/cjs/protocol.d.ts"
+            "import": "./dist/esm/index.js",
+            "require": "./dist/cjs/index.js",
+            "types": "./dist/cjs/index.d.ts"
         }
     },
     "scripts": {
         "build": "tsc -p tsconfig.cjs.json && tsc -p tsconfig.esm.json",
-        "test": "npm run build && node dist/cjs/tests.js"
+        "test": "npm run build && node --inspect=9932 dist/cjs/tests.js"
     },
     "repository": {
         "type": "git",
