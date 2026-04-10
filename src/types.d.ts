@@ -1,9 +1,3 @@
-type EncoderDict = {
-    count: number;
-    keys: { [key: string]: number };
-    order: string[];
-    frozen?: boolean;
-}
 
 type Dictionary = string[];
 
@@ -12,17 +6,7 @@ interface ProtocolTypes {
     [messageType: string]: number;
 }
 
-interface ProtocolHeader {
-    type: number;
-    payload: Protocol;
-}
 
-interface Protocol {
-    $byte?: number;
-    $object?: Protocol;
-    $array?: Protocol;
-    [key: string]: any;
-}
 
 interface ProtocolSchema {
     [messageType: string]: {
@@ -40,3 +24,59 @@ type PatchElem = { op: 'patch';    index: number; value: any };
 type Replace   = { op: 'replace';  values: any[] };
 type ArrayChange = Resize | SetElem | SetRange | Fill | PatchElem | Replace;
 
+
+
+
+interface DecodeRef {
+    view: DataView;
+    pos: number;
+}
+
+type EncoderDict = {
+    count: number;
+    keys: { [key: string]: number };
+    order: string[];
+    frozen?: boolean;
+}
+
+type Protocol = {
+    type: string;
+    index: number;
+    schema: CompiledNode;
+    originalSchema?: CompiledNode;
+    dictionary?: EncoderDict;
+}
+
+type PrimitiveKind =
+    | 'uint' | 'int' | 'float' | 'string' | 'boolean'
+    | 'null' | 'undefined' | 'object' | 'array';
+
+interface CompiledField {
+    key: string;
+    node: CompiledNode;
+}
+
+interface CompiledFieldMap {
+    [key: string]: number;
+}
+type CompiledNode =
+    | { kind: 'any'; type: 'any' }
+    | { kind: 'primitive'; type: PrimitiveKind }
+    | { kind: 'object';    mapping: CompiledFieldMap; fields: CompiledField[] }
+    | { kind: 'map';       mapping: CompiledFieldMap; fields: CompiledField[] }
+    | { kind: 'array';     elementNode: CompiledNode }
+    | { kind: 'static';    elementNode: CompiledNode }
+    | { kind: 'custom';    node: CompiledNode }
+    | { kind: 'enum';      values: (string | number)[] };
+
+
+interface ProtocolNode {
+    protocol: Protocol;
+    schema: CompiledNode;
+}
+
+interface DecodeRef {
+    view: DataView;
+    pos: number;
+    dictionary: EncoderDict | undefined;
+}

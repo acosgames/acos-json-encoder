@@ -2,8 +2,14 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "module": "ES2020",
+    "resolveJsonModule": true,
     "moduleResolution": "node",
     "outDir": "dist/esm"
   },
-  "exclude": ["src/tests.ts", "src/tests"]
+  "exclude": [
+    "node_modules",
+    "./dist",
+    "./src/old",
+    "./old"
+  ]
 }

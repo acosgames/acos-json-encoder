@@ -4,7 +4,12 @@
     "module": "CommonJS",
     "moduleResolution": "node",
     "outDir": "dist/cjs",
-    "resolveJsonModule": true,
-    "allowJs": true
-  }
+    "resolveJsonModule": true
+  },
+  "exclude": [
+    "node_modules",
+    "./dist",
+    "./src/old",
+    "./old"
+  ]
 }

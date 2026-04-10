@@ -14,7 +14,7 @@
     },
     "scripts": {
         "build": "tsc -p tsconfig.cjs.json && tsc -p tsconfig.esm.json",
-        "test": "npm run build && node --inspect=9932 dist/cjs/tests.js"
+        "test": "npm run build && node --inspect=9932 dist/cjs/test.js"
     },
     "repository": {
         "type": "git",

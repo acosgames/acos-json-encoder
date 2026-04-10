@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.unhidden = exports.hidden = exports.merge = exports.delta = exports.protoDecode = exports.protoEncode = exports.initProtocols = exports.createDefaultDict = exports.deserializeEX = exports.serializeEX = exports.deserialize = exports.serialize = exports.decode = exports.encode = void 0;
-var encoder_1 = require("./encoder");
+exports.unhidden = exports.hidden = exports.merge = exports.delta = exports.getProtocolSchema = exports.setDefaultDictionary = exports.protoDecode = exports.protoEncode = exports.revertProtocol = exports.extendProtocol = exports.registerProtocol = exports.createDefaultDict = exports.deserializeEX = exports.serializeEX = exports.deserialize = exports.serialize = exports.decode = exports.encode = void 0;
+var encoder_1 = require("./encoder/encoder");
 Object.defineProperty(exports, "encode", { enumerable: true, get: function () { return encoder_1.encode; } });
 Object.defineProperty(exports, "decode", { enumerable: true, get: function () { return encoder_1.decode; } });
 Object.defineProperty(exports, "serialize", { enumerable: true, get: function () { return encoder_1.serialize; } });
@@ -9,10 +9,14 @@ Object.defineProperty(exports, "deserialize", { enumerable: true, get: function 
 Object.defineProperty(exports, "serializeEX", { enumerable: true, get: function () { return encoder_1.serializeEX; } });
 Object.defineProperty(exports, "deserializeEX", { enumerable: true, get: function () { return encoder_1.deserializeEX; } });
 Object.defineProperty(exports, "createDefaultDict", { enumerable: true, get: function () { return encoder_1.createDefaultDict; } });
-var protocol_1 = require("./protocol");
-Object.defineProperty(exports, "initProtocols", { enumerable: true, get: function () { return protocol_1.initProtocols; } });
+var protocol_1 = require("./encoder/protocol");
+Object.defineProperty(exports, "registerProtocol", { enumerable: true, get: function () { return protocol_1.registerProtocol; } });
+Object.defineProperty(exports, "extendProtocol", { enumerable: true, get: function () { return protocol_1.extendProtocol; } });
+Object.defineProperty(exports, "revertProtocol", { enumerable: true, get: function () { return protocol_1.revertProtocol; } });
 Object.defineProperty(exports, "protoEncode", { enumerable: true, get: function () { return protocol_1.protoEncode; } });
 Object.defineProperty(exports, "protoDecode", { enumerable: true, get: function () { return protocol_1.protoDecode; } });
+Object.defineProperty(exports, "setDefaultDictionary", { enumerable: true, get: function () { return protocol_1.setDefaultDictionary; } });
+Object.defineProperty(exports, "getProtocolSchema", { enumerable: true, get: function () { return protocol_1.getProtocolSchema; } });
 var delta_1 = require("./delta/delta");
 Object.defineProperty(exports, "delta", { enumerable: true, get: function () { return delta_1.delta; } });
 Object.defineProperty(exports, "merge", { enumerable: true, get: function () { return delta_1.merge; } });

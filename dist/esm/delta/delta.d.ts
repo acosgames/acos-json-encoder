@@ -68,3 +68,4 @@ export declare function hidden(obj: any): any;
  * // state → { id: 1, _token: "abc", players: [{ id: 2, _secret: "xyz" }] }
  */
 export declare function unhidden(obj: any, extracted: any): void;
+//# sourceMappingURL=delta.d.ts.map
