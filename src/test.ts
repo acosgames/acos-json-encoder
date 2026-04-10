@@ -61,49 +61,100 @@ function runEncodingTest() {
 
         //     },
         // },
-        {
-            type: "gameupdate",
-            payload: {
-                room: {
-                    sequence: 6,
-                    next_player: 1,
-                    timeend: 1716346342382,
-                    // "meta": { room_slug: "B89HJ", }
-                },
-                state: {
-                    "cells": [
-                        {
-                            index: 0,
-                            op: "set",
-                            value: "HELLO",
-                        },
-                    ],
-                    // "cells": ["X","","O","X","X","O","O","",""],
-                },
-                players: [
-                    {
-                        index: 0,
-                        op: "set",
-                        value: {
-                            id: 1,
-                            displayname: 'Alice', attr: { test: 123 },
-                        },
-                    },
+        // {
+        //     type: "gameupdate",
+        //     payload: {
+        //         room: {
+        //             sequence: 6,
+        //             next_player: 1,
+        //             timeend: 1716346342382,
+        //             // "meta": { room_slug: "B89HJ", }
+        //         },
+        //         state: {
+        //             "cells": [
+        //                 {
+        //                     index: 0,
+        //                     op: "set",
+        //                     value: "HELLO",
+        //                 },
+        //             ],
+        //             // "cells": ["X","","O","X","X","O","O","",""],
+        //         },
+        //         players: [
+        //             {
+        //                 index: 0,
+        //                 op: "set",
+        //                 value: {
+        //                     id: 1,
+        //                     displayname: 'Alice', attr: { test: 123 },
+        //                 },
+        //             },
 
-                ]
-                // players: [
-                //     { id: 1, displayname: 'Alice', shortid: 'ac1', portraitid: 892, countrycode: 'US', rating: 3543, teamid: 1, rank: 0, score: 0 },
-                //     { id: 2, displayname: 'Bob', shortid: 'rb2', portraitid: 1832, countrycode: 'UK', rating: 3519, teamid: 2, rank: 0, score: 0 },
-                // ],
+        //         ]
+        //         // players: [
+        //         //     { id: 1, displayname: 'Alice', shortid: 'ac1', portraitid: 892, countrycode: 'US', rating: 3543, teamid: 1, rank: 0, score: 0 },
+        //         //     { id: 2, displayname: 'Bob', shortid: 'rb2', portraitid: 1832, countrycode: 'UK', rating: 3519, teamid: 2, rank: 0, score: 0 },
+        //         // ],
 
-            },
-        },
+        //     },
+        // },
         // {
         //     "type": "join",
         //     "payload": {
         //         "id": 12345,
         //     }
         // }
+        {
+            "type": "gameupdate",
+            "payload":
+
+            {
+                "room": {
+                    "updated": 9226,
+                    "events": [
+                        {
+                            "type": 1,
+                            "payload": [
+                                0
+                            ]
+                        }
+                    ],
+                    "status": 2
+                },
+                "teams": [
+                    {
+                        "op": "set",
+                        "index": 0,
+                        "value": {
+                            "players": [
+                                {
+                                    "op": "set",
+                                    "index": 0,
+                                    "value": 0
+                                }
+                            ],
+                            "rank": 2
+                        }
+                    }
+                ],
+                "players": [
+                    {
+                        "op": "set",
+                        "index": 0,
+                        "value": {
+                            "id": 0,
+                            "shortid": "6BWDTQ",
+                            "displayname": "Player_0",
+                            "portraitid": 167,
+                            "teamid": 0,
+                            "rank": 2,
+                            "score": 0
+                        }
+                    }
+                ]
+            }
+        }
+
     ]
 
     setDefaultDictionary(DICTIONARY);

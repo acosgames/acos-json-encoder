@@ -4,8 +4,7 @@
  * Change operations
  * -----------------
  * { op: 'resize', length: number }          – truncate or set array length
- * { op: 'set',   index: number, value: any } – replace a single element wholesale
- * { op: 'patch', index: number, delta: any } – recursively patch an object or array element
+ * { op: 'set',   index: number, value: any } – replace or recursively merge an element
  */
 
 
@@ -38,9 +37,7 @@ function objectDelta(
         }
         const child = valueDelta(from[key], to[key]);
         if (child !== undefined) {
-            // Both sides are arrays → child is ArrayChange[] → store under '#key'
-            const outputKey = (Array.isArray(from[key]) && Array.isArray(to[key])) ? '#' + key : key;
-            result[outputKey] = child;
+            result[key] = child;
         }
     }
 
@@ -161,17 +158,17 @@ export function arrayDelta(from: any[], to: any[]): ArrayChange[] {
 
         if (deepEqual(from[i], to[i])) continue;
 
-        // Try to produce a recursive patch for objects and arrays
+        // Try to produce a recursive delta for objects and arrays
         if (Array.isArray(from[i]) && Array.isArray(to[i])) {
             const nested = arrayDelta(from[i], to[i]);
             if (nested.length > 0) {
-                changes.push({ op: 'patch', index: i, value: nested });
+                changes.push({ op: 'set', index: i, value: nested });
                 continue;
             }
         } else if (isPlainObject(from[i]) && isPlainObject(to[i])) {
             const nested = objectDelta(from[i], to[i]);
             if (nested !== undefined) {
-                changes.push({ op: 'patch', index: i, value: nested });
+                changes.push({ op: 'set', index: i, value: nested });
                 continue;
             }
         }
@@ -247,19 +244,17 @@ export function arrayMerge(from: any[], changes: ArrayChange[]): any[] {
         } else if (change.op === 'resize') {
             result.length = change.value;
         } else if (change.op === 'set') {
-            result[change.index] = change.value;
-        } else if (change.op === 'setrange') {
-            for (let i = 0; i < change.values.length; i++) {
-                result[change.index + i] = change.values[i];
-            }
-        } else if (change.op === 'patch') {
             const elem = result[change.index];
-            if (Array.isArray(elem)) {
+            if (Array.isArray(elem) && Array.isArray(change.value)) {
                 result[change.index] = arrayMerge(elem, change.value);
-            } else if (isPlainObject(elem)) {
+            } else if (isPlainObject(elem) && isPlainObject(change.value)) {
                 result[change.index] = objectMerge(elem, change.value);
             } else {
                 result[change.index] = change.value;
+            }
+        } else if (change.op === 'setrange') {
+            for (let i = 0; i < change.values.length; i++) {
+                result[change.index + i] = change.values[i];
             }
         }
     }
@@ -281,8 +276,8 @@ function objectMerge(
 
         const d = delta[key];
 
-        if (Array.isArray(result[key]) && Array.isArray(d)) {
-            result[key] = arrayMerge(result[key], d);
+        if (Array.isArray(d) && d.length > 0 && isPlainObject(d[0]) && 'op' in (d[0] as any)) {
+            result[key] = arrayMerge(result[key] ?? [], d as ArrayChange[]);
         } else if (isPlainObject(result[key]) && isPlainObject(d)) {
             result[key] = objectMerge(result[key], d);
         } else {

@@ -1,6 +1,6 @@
 {
     "name": "acos-json-encoder",
-    "version": "2.0.0",
+    "version": "2.0.2",
     "description": "JSON serializer and deserializer used by ACOS.games",
     "main": "dist/cjs/index.js",
     "module": "dist/esm/index.js",

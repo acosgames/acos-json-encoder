@@ -689,16 +689,14 @@ test('object delta: deleted key', () => {
     assertEqual(result, to);
 });
 
-test('object delta: nested array stored under #key', () => {
-    // When both sides have an array at the same key, objectDelta stores changes as '#key'.
-    // objectMerge does not currently process #key notation; the raw delta is returned.
+test('object delta: nested array changes round-trip', () => {
     const from = { items: [1, 2, 3] };
     const to   = { items: [1, 2, 3, 4] };
     const d = delta(from, to);
-    assert(d !== undefined && Array.isArray(d['#items']), 'array delta stored under #items key');
-    // merge does not apply #key array deltas — it copies the key as-is
-    const result: any = merge(from, d);
-    assert(Array.isArray(result['#items']), '#items key preserved in merged result');
+    assert(d !== undefined && Array.isArray(d['items']), 'array delta stored under original key');
+    assert(d['items'][0]?.op !== undefined, 'array delta entries have op key');
+    const result = merge(from, d);
+    assertEqual(result, to);
 });
 
 test('merge primitive replacement', () => {

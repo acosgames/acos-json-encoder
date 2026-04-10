@@ -179,13 +179,13 @@ export function protoEncode(payload: any): ArrayBuffer {
     return new Uint8Array(buffer).buffer;
 }
 
-export function encodeNode(value: any, protocol: Protocol, node: CompiledNode, buffer: number[], cache: any = {}): void {
+export function encodeNode(value: any, protocol: Protocol, node: CompiledNode, buffer: number[], cache: any = {}, path?: string): void {
     switch (node.kind) {
         case 'any': return serializeEX(value, buffer, protocol.dictionary, cache);
         case 'primitive': {
             // let before = buffer.length;
 
-            encodePrimitive(value, protocol, node.type, buffer, cache);
+            encodePrimitive(value, protocol, node.type, buffer, cache, path);
             // console.log("Encoded primitive", node.type, "value:", value, "bytes:", buffer.length - before);
             return;
         }
@@ -202,7 +202,30 @@ export function encodeNode(value: any, protocol: Protocol, node: CompiledNode, b
     }
 }
 
-function encodePrimitive(value: any, protocol: Protocol, type: PrimitiveKind, buffer: number[], cache: any = {}): void {
+function encodePrimitive(value: any, protocol: Protocol, type: PrimitiveKind, buffer: number[], cache: any = {}, path?: string): void {
+    const at = path ? ` at '${path}'` : '';
+    if (value != null) {
+        switch (type) {
+            case 'uint':
+            case 'int':
+            case 'float':
+                if (typeof value !== 'number')
+                    throw new TypeError(`Protocol type mismatch${at}: expected '${type}' (number) but got ${typeof value} (${JSON.stringify(value)})`);
+                if ((type === 'uint' || type === 'int') && !Number.isInteger(value))
+                    throw new TypeError(`Protocol type mismatch${at}: expected '${type}' (integer) but got non-integer number (${value})`);
+                if (type === 'uint' && value < 0)
+                    throw new TypeError(`Protocol type mismatch${at}: expected 'uint' (non-negative) but got negative value (${value})`);
+                break;
+            case 'string':
+                if (typeof value !== 'string')
+                    throw new TypeError(`Protocol type mismatch${at}: expected 'string' but got ${typeof value} (${JSON.stringify(value)})`);
+                break;
+            case 'boolean':
+                if (typeof value !== 'boolean')
+                    throw new TypeError(`Protocol type mismatch${at}: expected 'boolean' but got ${typeof value} (${JSON.stringify(value)})`);
+                break;
+        }
+    }
     switch (type) {
         case 'uint':
             writeLEB128(buffer, value == null ? 0 : Math.max(0, Math.floor(value)));
@@ -307,7 +330,7 @@ function encodeObject(value: any, protocol: Protocol, mapping: Record<string, nu
     for (let i = 0; i < fields.length; i++) {
         const groupIdx = Math.floor(i / 7);
         if (bitflags[groupIdx] & (1 << (i % 7))) {
-            encodeNode(value[fields[i].key], protocol, fields[i].node, buffer, cache);
+            encodeNode(value[fields[i].key], protocol, fields[i].node, buffer, cache, fields[i].key);
         }
     }
 
@@ -347,7 +370,6 @@ function encodeMap(value: any, protocol: Protocol, mapNode: CompiledNode, buffer
  * Flexible op object shape (mirrors existing ArrayChange types):
  *   { op: 'resize',   value: number }
  *   { op: 'set',      index: number, value: any }
- *   { op: 'patch',    index: number, value: any }
  *   { op: 'setrange', index: number, values: any[] }
  *   { op: 'fill',     index: number, count: number, value: any }
  *   { op: 'replace',  values: any[] }
@@ -378,7 +400,6 @@ function encodeArray(value: any, protocol: Protocol, elementNode: CompiledNode, 
 // Flexible-array op codes
 const AROP_RESIZE = 1;
 const AROP_SET = 2;
-const AROP_PATCH = 3;
 const AROP_SETRANGE = 4;
 const AROP_FILL = 5;
 const AROP_REPLACE = 6;
@@ -391,11 +412,6 @@ function encodeArrayOp(op: any, protocol: Protocol, elementNode: CompiledNode, b
             return;
         case 'set':
             buffer.push(AROP_SET);
-            writeLEB128(buffer, op.index);
-            encodeNode(op.value, protocol, elementNode, buffer, cache);
-            return;
-        case 'patch':
-            buffer.push(AROP_PATCH);
             writeLEB128(buffer, op.index);
             encodeNode(op.value, protocol, elementNode, buffer, cache);
             return;
@@ -424,7 +440,7 @@ function encodeArrayOp(op: any, protocol: Protocol, elementNode: CompiledNode, b
  *
  * Input shape → wire mode:
  *   Plain array (no op property on first element) → mode 4 (refresh/replace-all)
- *   Array of { op: 'set'|'patch', index, value }  → mode 2 (by-index updates)
+ *   Array of { op: 'set', index, value }           → mode 2 (by-index updates)
  *   Single { op: 'fill', index, count, value }     → mode 3 (fill)
  */
 function encodeStaticArray(value: any, protocol: Protocol, elementNode: CompiledNode, buffer: number[], cache: any = {}): void {
@@ -450,7 +466,7 @@ function encodeStaticArray(value: any, protocol: Protocol, elementNode: Compiled
         } else {
             // Mode 2: sparse by-index updates
             buffer.push(2);
-            const setOps = value.filter((op: any) => op.op === 'set' || op.op === 'patch');
+            const setOps = value.filter((op: any) => op.op === 'set');
             writeLEB128(buffer, setOps.length);
             for (const op of setOps) {
                 writeLEB128(buffer, op.index);
@@ -631,8 +647,6 @@ function decodeArrayOp(ref: DecodeRef, protocol: Protocol, elementNode: Compiled
             return { op: 'resize', value: readLEB128(ref) };
         case AROP_SET:
             return { op: 'set', index: readLEB128(ref), value: decodeNode(ref, protocol, elementNode) };
-        case AROP_PATCH:
-            return { op: 'patch', index: readLEB128(ref), value: decodeNode(ref, protocol, elementNode) };
         case AROP_SETRANGE: {
             const index = readLEB128(ref);
             const n = readLEB128(ref);
