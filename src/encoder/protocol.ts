@@ -183,10 +183,10 @@ export function encodeNode(value: any, protocol: Protocol, node: CompiledNode, b
     switch (node.kind) {
         case 'any': return serializeEX(value, buffer, protocol.dictionary, cache);
         case 'primitive': {
-            let before = buffer.length;
+            // let before = buffer.length;
 
             encodePrimitive(value, protocol, node.type, buffer, cache);
-            console.log("Encoded primitive", node.type, "value:", value, "bytes:", buffer.length - before);
+            // console.log("Encoded primitive", node.type, "value:", value, "bytes:", buffer.length - before);
             return;
         }
         case 'object': return encodeObject(value, protocol, node.mapping, node.fields, buffer, cache);
@@ -321,13 +321,16 @@ function encodeObject(value: any, protocol: Protocol, mapping: Record<string, nu
 /**
  * Encode a $map: [count:LEB] [ [keyLen:LEB][UTF-8 key] [value] ] …
  */
-function encodeMap(value: any, protocol: Protocol, valueNode: CompiledNode, buffer: number[], cache: any = {}): void {
+function encodeMap(value: any, protocol: Protocol, mapNode: CompiledNode, buffer: number[], cache: any = {}): void {
     if (!value || typeof value !== 'object') {
         writeLEB128(buffer, 0);
         return;
     }
     const keys = Object.keys(value);
     writeLEB128(buffer, keys.length);
+    const valueNode: CompiledNode = (mapNode.kind === 'map')
+        ? { kind: 'object', mapping: mapNode.mapping, fields: mapNode.fields }
+        : mapNode;
     for (const key of keys) {
         encodeString(key, buffer, protocol.dictionary, cache);
         encodeNode(value[key], protocol, valueNode, buffer, cache);
@@ -522,15 +525,10 @@ function decodePrimitive(ref: DecodeRef, protocol: Protocol, type: PrimitiveKind
     switch (type) {
         case 'uint': return readLEB128(ref);
         case 'int': return readSLEB128(ref);
-        case 'float': {
-            const v = ref.view.getFloat64(ref.pos);
-            ref.pos += 8;
-            return v;
-        }
-        case 'string':
-            return decodeString(ref);
         case 'float':
             return decodeFloat64(ref);
+        case 'string':
+            return decodeString(ref);
         case 'boolean':
             return ref.view.getUint8(ref.pos++) !== 0;
         case 'null':
@@ -593,9 +591,12 @@ function decodeObject(ref: DecodeRef, protocol: Protocol, fields: CompiledField[
 /**
  * Decode a $map: [count:LEB] [ [keyLen:LEB][UTF-8 key] [value] ] …
  */
-function decodeMap(ref: DecodeRef, protocol: Protocol, valueNode: CompiledNode): any {
+function decodeMap(ref: DecodeRef, protocol: Protocol, mapNode: CompiledNode): any {
     const count = readLEB128(ref);
     const result: any = {};
+    const valueNode: CompiledNode = (mapNode.kind === 'map')
+        ? { kind: 'object', mapping: mapNode.mapping, fields: mapNode.fields }
+        : mapNode;
     for (let i = 0; i < count; i++) {
         const key = decodeString(ref)
         result[key] = decodeNode(ref, protocol, valueNode);
