@@ -5,7 +5,7 @@
 
 import {
     encode, decode, createDefaultDict,
-    registerProtocol, extendProtocol, revertProtocol,
+    registerProtocol, registerExtension, applyExtension, disableExtension,
     protoEncode as _protoEncodeRaw, protoDecode,
     setDefaultDictionary, getProtocolSchema,
     delta, merge, hidden, unhidden,
@@ -437,12 +437,12 @@ test('$custom in nested object', () => {
     assertEqual(protoDecode(protoEncode(msg)), msg);
 });
 
-// ─── Section: extendProtocol ─────────────────────────────────────────────────
+// ─── Section: Extensions ─────────────────────────────────────────────────────
 
-console.log(`${C.cyan}${C.bold}\n── Protocol: extendProtocol ──${C.reset}`);
+console.log(`${C.cyan}${C.bold}\n── Protocol: Extensions ──${C.reset}`);
 
 registerProtocol({
-    type: 'p_extend',
+    type: 'p_ext',
     payload: {
         seq: 'uint',
         fixed: { id: 'uint', name: 'string' },
@@ -457,16 +457,22 @@ registerProtocol({
     }
 }, DICT);
 
-// Extend: replace $custom state, add new top-level key, extend nested $custom in players
-extendProtocol('p_extend', {
+registerExtension('p_ext', 'chess', {
     state: { cells: { $static: { $enum: ['', 'X', 'O'] } } },
     newkey: 'uint',
     players: { attr: { level: 'uint', tag: 'string' } }
 });
 
-test('extended $custom state encodes/decodes', () => {
+registerExtension('p_ext', 'poker', {
+    state: { deck: { $static: 'string' } },
+    newkey: 'uint'
+});
+
+applyExtension('p_ext', 'chess');
+
+test('extension: $custom state encodes/decodes', () => {
     const msg = {
-        type: 'p_extend',
+        type: 'p_ext',
         payload: {
             state: { cells: ['X', 'O', 'X', 'O', 'X', '', 'O', '', ''] },
         }
@@ -474,14 +480,14 @@ test('extended $custom state encodes/decodes', () => {
     assertEqual(protoDecode(protoEncode(msg)), msg);
 });
 
-test('new key added via extendProtocol', () => {
-    const msg = { type: 'p_extend', payload: { seq: 1, newkey: 99 } };
+test('extension: new key added', () => {
+    const msg = { type: 'p_ext', payload: { seq: 1, newkey: 99 } };
     assertEqual(protoDecode(protoEncode(msg)), msg);
 });
 
-test('nested $custom in $static element extended', () => {
+test('extension: nested $custom in $static extended', () => {
     const msg = {
-        type: 'p_extend',
+        type: 'p_ext',
         payload: {
             players: [
                 { id: 1, score: 100, attr: { level: 5, tag: 'pro' } },
@@ -492,56 +498,51 @@ test('nested $custom in $static element extended', () => {
     assertEqual(protoDecode(protoEncode(msg)), msg);
 });
 
-test('fixed field NOT overridden by extendProtocol', () => {
-    // Try to extend a non-custom field — should silently skip
-    extendProtocol('p_extend', { fixed: { id: 'string' } as any }); // wrong type, should be no-op
-    const msg = { type: 'p_extend', payload: { fixed: { id: 7, name: 'Alice' } } };
+test('extension: fixed field NOT overridden', () => {
+    // fixed is a concrete field, not $custom — extendNode skips it silently
+    const msg = { type: 'p_ext', payload: { fixed: { id: 7, name: 'Alice' } } };
     assertEqual(protoDecode(protoEncode(msg)), msg);
 });
 
-test('schema reflects extension', () => {
-    const schema = getProtocolSchema('p_extend');
+test('extension: schema reflects active extension', () => {
+    const schema = getProtocolSchema('p_ext');
     assert(schema.newkey === 'uint', 'newkey should appear in schema');
     assert(schema.players.$static.attr.level === 'uint', 'players.attr.level should be uint');
 });
 
-// ─── Section: revertProtocol ─────────────────────────────────────────────────
+applyExtension('p_ext', 'poker');
 
-console.log(`${C.cyan}${C.bold}\n── Protocol: revertProtocol ──${C.reset}`);
-
-registerProtocol({
-    type: 'p_revert',
-    payload: {
-        mode: 'uint',
-        data: { $custom: 'any' }
-    }
-}, DICT);
-
-test('extended $custom field works before revert', () => {
-    extendProtocol('p_revert', { data: { cells: { $static: 'string' } } });
-    const msg = { type: 'p_revert', payload: { mode: 1, data: { cells: ['a', 'b', 'c'] } } };
+test('extension: switch to poker extension', () => {
+    const msg = { type: 'p_ext', payload: { newkey: 42, state: { deck: ['Ace', 'King'] } } };
     assertEqual(protoDecode(protoEncode(msg)), msg);
 });
 
-test('revertProtocol restores original schema', () => {
-    revertProtocol('p_revert');
-    // After revert, 'data' is $custom/'any' again — generic object should round-trip
-    const msg = { type: 'p_revert', payload: { mode: 2, data: { anything: 42 } } };
+test('extension: switching removes previous extension fields', () => {
+    // chess added players.attr.level; after switching to poker it should be gone
+    const schema = getProtocolSchema('p_ext');
+    assert(schema.players.$static.attr === 'any', 'players.attr should be $custom/any after switching away from chess');
+});
+
+disableExtension('p_ext');
+
+test('extension: disable reverts to base schema', () => {
+    // state is $custom/'any' again — any object should round-trip via generic encoder
+    const msg = { type: 'p_ext', payload: { seq: 2, state: { anything: 42 } } };
     assertEqual(protoDecode(protoEncode(msg)), msg);
 });
 
-test('schema after revert shows $custom default', () => {
-    const schema = getProtocolSchema('p_revert');
-    // data should be 'any' (the $custom default) after revert
-    assert(schema.data === 'any', 'data should be any after revert');
+test('extension: schema after disable shows $custom default', () => {
+    const schema = getProtocolSchema('p_ext');
+    assert(schema.state === 'any', 'state should be any after disable');
+    assert(schema.newkey === undefined, 'newkey should be gone after disable');
 });
 
-test('re-extend after revert works', () => {
-    extendProtocol('p_revert', { data: { $static: 'uint' } });
-    const msg = { type: 'p_revert', payload: { data: [1, 2, 3] } };
+applyExtension('p_ext', 'chess');
+test('extension: re-apply after disable works', () => {
+    const msg = { type: 'p_ext', payload: { state: { cells: ['X', '', 'O'] } } };
     assertEqual(protoDecode(protoEncode(msg)), msg);
-    revertProtocol('p_revert');
 });
+disableExtension('p_ext');
 
 // ─── Section: extras (non-schema keys) ────────────────────────────────────────
 

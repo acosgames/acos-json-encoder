@@ -1,4 +1,4 @@
-import { extendProtocol, getProtocolSchema, protoDecode, protoEncode, registerProtocol, setDefaultDictionary } from "./encoder/protocol";
+import { registerExtension, applyExtension, getProtocolSchema, protoDecode, protoEncode, registerProtocol, setDefaultDictionary } from "./encoder/protocol";
 import PROTOCOL from "./test-data/example-protocol-def";
 import DICTIONARY from './test-data/dictionary.json';
 import { areEqual } from "./encoder/helper";
@@ -160,11 +160,12 @@ function runEncodingTest() {
     setDefaultDictionary(DICTIONARY);
     registerProtocol(PROTOCOL, DICTIONARY);
 
-    extendProtocol('gameupdate', {
+    registerExtension('gameupdate', 'default', {
         state: { "cells": { "$static": { "$enum": ["", "HELLO", "WORLD"] } } },
         players: { "attr": { "$object": { "test": "uint" } } },
         teams: { "attr": { "$object": { "test2": "uint" } } },
     });
+    applyExtension('gameupdate', 'default');
 
 
     registerProtocol({

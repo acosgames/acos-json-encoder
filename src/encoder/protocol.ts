@@ -32,24 +32,46 @@ export function setDefaultDictionary(dictionaryList: string[]): void {
     registeredProtocols[0].dictionary = dict;
 }
 
+// ─── Named extension registry ────────────────────────────────────────────────
+
+const extensionRegistry: Record<string, Record<string, Record<string, any>>> = {};
+
 /**
- * Extend an already-registered protocol by replacing or adding field schemas.
+ * Define a named extension for a registered protocol.
+ * The extension is stored but not applied until `applyExtension` is called.
  *
- * `overrides` is a plain schema object whose keys map to the fields you want
- * to replace (or add) in the top-level payload object of `baseType`, using
- * the same schema syntax accepted by registerProtocol.
- *
- * Example:
- *   extendProtocol('gameupdate', {
- *     state:   { $object: { '#cells': { $array: { index: 'uint', value: 'string' } } } },
- *     players: { $static: MyPlayer },
- *   });
+ * @param baseType  The protocol type name (must already be registered).
+ * @param name      An identifier for this extension (e.g. 'chess', 'poker').
+ * @param overrides Schema overrides — same syntax as `registerProtocol` payload.
  */
-export function revertProtocol(baseType: string): void {
+export function registerExtension(baseType: string, name: string, overrides: Record<string, any>): void {
+    if (!extensionRegistry[baseType]) extensionRegistry[baseType] = {};
+    extensionRegistry[baseType][name] = overrides;
+}
+
+/**
+ * Switch a protocol to a named extension.
+ * Always resets to the original base schema first, then applies the
+ * extension — so switching extensions never accumulates stale overrides.
+ *
+ * @param baseType  The protocol type name.
+ * @param name      The extension name previously registered with `registerExtension`.
+ */
+export function applyExtension(baseType: string, name: string): void {
     const protocol = getProtocol(baseType);
-    if (!protocol.originalSchema) {
-        throw new Error(`Protocol '${baseType}' has no saved original schema to revert to.`);
-    }
+    if (!protocol.originalSchema) throw new Error(`Protocol '${baseType}' has no original schema.`);
+    const exts = extensionRegistry[baseType];
+    if (!exts || !exts[name]) throw new Error(`Extension '${name}' not registered for protocol '${baseType}'.`);
+    protocol.schema = deepCloneNode(protocol.originalSchema);
+    extendNode(protocol.schema, exts[name]);
+}
+
+/**
+ * Disable the active extension for a protocol, reverting it to the base schema.
+ */
+export function disableExtension(baseType: string): void {
+    const protocol = getProtocol(baseType);
+    if (!protocol.originalSchema) throw new Error(`Protocol '${baseType}' has no original schema.`);
     protocol.schema = deepCloneNode(protocol.originalSchema);
 }
 
@@ -84,14 +106,7 @@ function extendNode(node: CompiledNode, overrides: Record<string, any>): void {
     }
 }
 
-export function extendProtocol(baseType: string, overrides: Record<string, any>): void {
-    const protocol = getProtocol(baseType);
-    const node = protocol.schema;
-    // if (node.kind !== 'object') {
-    //     throw new Error(`Protocol '${baseType}' payload schema is not an object and cannot be extended.`);
-    // }
-    extendNode(node, overrides);
-}
+
 
 function describeNode(node: CompiledNode): any {
     switch (node.kind) {
