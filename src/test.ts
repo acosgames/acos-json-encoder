@@ -162,8 +162,8 @@ function runEncodingTest() {
 
     registerExtension('gameupdate', 'default', {
         state: { "cells": { "$static": { "$enum": ["", "HELLO", "WORLD"] } } },
-        players: { "attr": { "$object": { "test": "uint" } } },
-        teams: { "attr": { "$object": { "test2": "uint" } } },
+        players: { "attr": { "test": "uint" } },
+        teams: { "attr": { "test2": "uint" } },
     });
     applyExtension('gameupdate', 'default');
 

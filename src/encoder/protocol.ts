@@ -83,8 +83,16 @@ function extendNode(node: CompiledNode, overrides: Record<string, any>): void {
             const existingField = node.fields[existingIdx];
             const child = existingField.node;
             if (child.kind === 'custom') {
-                // $custom field: replace with the compiled override schema
+                // $slot field: replace with the compiled override schema
                 node.fields[existingIdx] = { key, node: compileSchema(overrides[key]) };
+            } else if (child.kind === 'enum' &&
+                overrides[key] !== null &&
+                typeof overrides[key] === 'object' &&
+                '$enum' in overrides[key] &&
+                Array.isArray(overrides[key]['$enum'])
+            ) {
+                // Append new enum values to the existing set
+                child.values = [...child.values, ...overrides[key]['$enum']];
             } else if (
                 overrides[key] !== null &&
                 typeof overrides[key] === 'object' &&

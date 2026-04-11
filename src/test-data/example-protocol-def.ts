@@ -1,6 +1,6 @@
 /**
  * 
- * $object (known)
+ * $object (known fields, plain record)
  *  (1)             [bitflag] [value] ... 
  * 
  * $map (unknown)
@@ -33,7 +33,7 @@ const Player = {
         "$map": {}
     },
     "attr": {
-        "$custom": 'any'
+        "$slot": 'any'
     },
     "rank": "uint",
     "score": "uint",
@@ -50,7 +50,7 @@ const Team = {
     "rank": "uint",
     "score": "uint",
     "attr": {
-        "$custom": {}
+        "$slot": {}
     }
 }
 
@@ -75,12 +75,10 @@ const PROTOCOL = {
             "sequence": "uint",
             "status": "uint",
             "meta": {
-                "$object": {
-                    "room_slug": "string",
-                    "isreplay": "uint",
-                    "players": "uint",
-                    "teams": "uint",
-                }
+                "room_slug": "string",
+                "isreplay": "uint",
+                "players": "uint",
+                "teams": "uint",
             }
         },
         "teams": {
@@ -90,7 +88,7 @@ const PROTOCOL = {
             "$static": Player
         },
         "state": {
-            "$custom": 'any'
+            "$slot": 'any'
         }
     },
 }

@@ -1,6 +1,6 @@
 /**
  * Full test suite for acos-json-encoder
- * Covers: encoder, protocol (schema types, extend/revert, enum, custom, extras), delta, hidden/unhidden
+ * Covers: encoder, protocol (schema types, extensions, enum, $slot, extras), delta, hidden/unhidden
  */
 
 import {
@@ -230,35 +230,33 @@ test('omitted optional fields round-trip', () => {
     assertEqual(protoDecode(protoEncode(msg)), msg);
 });
 
-// ─── Section: Protocol — $object ─────────────────────────────────────────────
+// ─── Section: Protocol — object (plain record) ─────────────────────────────────────────────────────────────────────────
 
-console.log(`${C.cyan}${C.bold}\n── Protocol: $object ──${C.reset}`);
+console.log(`${C.cyan}${C.bold}\n── Protocol: object (plain record) ──${C.reset}`);
 
 registerProtocol({
     type: 'p_object',
     payload: {
         meta: {
-            $object: {
-                title: 'string',
-                count: 'uint',
-            }
+            title: 'string',
+            count: 'uint',
         }
     }
 }, DICT);
 
-test('$object field present', () => {
+test('object field present', () => {
     const msg = { type: 'p_object', payload: { meta: { title: 'test', count: 5 } } };
     assertEqual(protoDecode(protoEncode(msg)), msg);
 });
 
-test('$object field absent (payload has schema field as undefined)', () => {
+test('object field absent (payload has schema field as undefined)', () => {
     // When meta is entirely absent, the field bit is 0 and no bytes are written.
     // The bitflag byte is still written (value 0), so the decoder can advance past it.
     const msg = { type: 'p_object', payload: { meta: { title: 'only one field' } } };
     assertEqual(protoDecode(protoEncode(msg)), msg);
 });
 
-test('$object partial fill', () => {
+test('object partial fill', () => {
     const msg = { type: 'p_object', payload: { meta: { count: 3 } } };
     assertEqual(protoDecode(protoEncode(msg)), msg);
 });
@@ -413,26 +411,26 @@ test('$static of $enum', () => {
 
 // ─── Section: Protocol — $custom ─────────────────────────────────────────────
 
-console.log(`${C.cyan}${C.bold}\n── Protocol: $custom ──${C.reset}`);
+console.log(`${C.cyan}${C.bold}\n── Protocol: $slot ──${C.reset}`);
 
 registerProtocol({
     type: 'p_custom',
     payload: {
         fixed: 'uint',
-        state: { $custom: 'any' },
+        state: { $slot: 'any' },
         meta:  {
             title: 'string',
-            extra: { $custom: 'any' }
+            extra: { $slot: 'any' }
         }
     }
 }, DICT);
 
-test('$custom default (any) encodes generically', () => {
+test('$slot default (any) encodes generically', () => {
     const msg = { type: 'p_custom', payload: { fixed: 5, state: { foo: 'bar', n: 42 } } };
     assertEqual(protoDecode(protoEncode(msg)), msg);
 });
 
-test('$custom in nested object', () => {
+test('$slot in nested object', () => {
     const msg = { type: 'p_custom', payload: { meta: { title: 'T', extra: { x: 1 } } } };
     assertEqual(protoDecode(protoEncode(msg)), msg);
 });
@@ -446,12 +444,13 @@ registerProtocol({
     payload: {
         seq: 'uint',
         fixed: { id: 'uint', name: 'string' },
-        state: { $custom: 'any' },
+        state: { $slot: 'any' },
+        eventType: { $enum: ['join', 'gameover'] },
         players: {
             $static: {
                 id: 'uint',
                 score: 'uint',
-                attr: { $custom: 'any' }
+                attr: { $slot: 'any' }
             }
         }
     }
@@ -460,17 +459,19 @@ registerProtocol({
 registerExtension('p_ext', 'chess', {
     state: { cells: { $static: { $enum: ['', 'X', 'O'] } } },
     newkey: 'uint',
+    eventType: { $enum: ['pick', 'checkmate'] },
     players: { attr: { level: 'uint', tag: 'string' } }
 });
 
 registerExtension('p_ext', 'poker', {
     state: { deck: { $static: 'string' } },
-    newkey: 'uint'
+    newkey: 'uint',
+    eventType: { $enum: ['bet', 'fold', 'allin'] }
 });
 
 applyExtension('p_ext', 'chess');
 
-test('extension: $custom state encodes/decodes', () => {
+test('extension: $slot state encodes/decodes', () => {
     const msg = {
         type: 'p_ext',
         payload: {
@@ -485,7 +486,7 @@ test('extension: new key added', () => {
     assertEqual(protoDecode(protoEncode(msg)), msg);
 });
 
-test('extension: nested $custom in $static extended', () => {
+test('extension: nested $slot in $static extended', () => {
     const msg = {
         type: 'p_ext',
         payload: {
@@ -499,7 +500,7 @@ test('extension: nested $custom in $static extended', () => {
 });
 
 test('extension: fixed field NOT overridden', () => {
-    // fixed is a concrete field, not $custom — extendNode skips it silently
+    // fixed is a concrete field, not $slot — extendNode skips it silently
     const msg = { type: 'p_ext', payload: { fixed: { id: 7, name: 'Alice' } } };
     assertEqual(protoDecode(protoEncode(msg)), msg);
 });
@@ -508,6 +509,24 @@ test('extension: schema reflects active extension', () => {
     const schema = getProtocolSchema('p_ext');
     assert(schema.newkey === 'uint', 'newkey should appear in schema');
     assert(schema.players.$static.attr.level === 'uint', 'players.attr.level should be uint');
+    assert(Array.isArray(schema.eventType.$enum), 'eventType.$enum should be an array');
+    assert(schema.eventType.$enum[0] === 'join', 'base enum values preserved');
+    assert(schema.eventType.$enum[2] === 'pick', 'extension enum values appended');
+});
+
+test('extension: $enum base values encode/decode', () => {
+    const msg = { type: 'p_ext', payload: { eventType: 'join' } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+test('extension: $enum extended values encode/decode', () => {
+    const msg = { type: 'p_ext', payload: { eventType: 'pick' } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+test('extension: $enum extended values encode/decode 2', () => {
+    const msg = { type: 'p_ext', payload: { eventType: 'checkmate' } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
 });
 
 applyExtension('p_ext', 'poker');
@@ -520,18 +539,22 @@ test('extension: switch to poker extension', () => {
 test('extension: switching removes previous extension fields', () => {
     // chess added players.attr.level; after switching to poker it should be gone
     const schema = getProtocolSchema('p_ext');
-    assert(schema.players.$static.attr === 'any', 'players.attr should be $custom/any after switching away from chess');
+    assert(schema.players.$static.attr === 'any', 'players.attr should be $slot/any after switching away from chess');
+    // chess added pick/checkmate; poker replaces with bet/fold/allin
+    assert(schema.eventType.$enum.includes('bet'), 'poker enum values present');
+    assert(!schema.eventType.$enum.includes('pick'), 'chess enum values absent after switch');
+    assert(schema.eventType.$enum[0] === 'join', 'base enum values still present');
 });
 
 disableExtension('p_ext');
 
 test('extension: disable reverts to base schema', () => {
-    // state is $custom/'any' again — any object should round-trip via generic encoder
+    // state is $slot/'any' again — any object should round-trip via generic encoder
     const msg = { type: 'p_ext', payload: { seq: 2, state: { anything: 42 } } };
     assertEqual(protoDecode(protoEncode(msg)), msg);
 });
 
-test('extension: schema after disable shows $custom default', () => {
+test('extension: schema after disable shows $slot default', () => {
     const schema = getProtocolSchema('p_ext');
     assert(schema.state === 'any', 'state should be any after disable');
     assert(schema.newkey === undefined, 'newkey should be gone after disable');
@@ -629,9 +652,10 @@ test('array delta: set single element', () => {
 });
 
 test('array delta: fill run', () => {
-    const from = ['', '', '', '', '', '', '', '', ''];
+    const from = undefined;//['', '', '', '', '', '', '', '', ''];
     const to   = ['X', 'X', 'X', '', '', '', '', '', ''];
     const d = delta(from, to);
+    console.log('Delta for fill run:', JSON.stringify(d));
     const result = merge(from, d);
     assertEqual(result, to);
 });
@@ -696,6 +720,199 @@ test('object delta: nested array changes round-trip', () => {
     const d = delta(from, to);
     assert(d !== undefined && Array.isArray(d['items']), 'array delta stored under original key');
     assert(d['items'][0]?.op !== undefined, 'array delta entries have op key');
+    const result = merge(from, d);
+    assertEqual(result, to);
+});
+
+test('object delta: new array key uses array ops', () => {
+    const from: any = { score: 5 };
+    const to: any   = { score: 5, cells: ['X', 'X', 'X', 'O', 'O'] };
+    const d = delta(from, to);
+    assert(Array.isArray(d['cells']), 'cells delta should be an array');
+    assert(d['cells'][0]?.op !== undefined, 'cells delta should contain ops');
+    const result = merge(from, d);
+    assertEqual(result, to);
+});
+
+test('object delta: new array key with fill op creates key on merge', () => {
+    const from: any = {
+    "room": {
+        "_teams": {
+            "team_o": 0,
+            "team_x": 1
+        },
+        "_players": {
+            "6LFHTF": 0,
+            "8Q88GH": 1
+        },
+        "next_id": null,
+        "starttime": 1775854350372,
+        "_sequence": 2,
+        "updated": 16815,
+        "timeend": null,
+        "timesec": null,
+        "status": 2,
+        "isreplay": true
+    },
+    "state": {},
+    "events": [],
+    "teams": [
+        {
+            "team_slug": "team_o",
+            "name": "Team O",
+            "color": "#1187fd",
+            "order": 0,
+            "players": [
+                0
+            ],
+            "rank": 2,
+            "score": 0
+        },
+        {
+            "team_slug": "team_x",
+            "name": "Team X",
+            "color": "#dd7575",
+            "order": 1,
+            "players": [
+                1
+            ],
+            "rank": 2,
+            "score": 0
+        }
+    ],
+    "players": [
+        {
+            "id": 0,
+            "shortid": "6LFHTF",
+            "displayname": "Player_0",
+            "portraitid": 1155,
+            "teamid": 0,
+            "rank": 2,
+            "score": 0
+        },
+        {
+            "id": 1,
+            "shortid": "8Q88GH",
+            "displayname": "Player_1",
+            "portraitid": 1973,
+            "teamid": 1,
+            "rank": 2,
+            "score": 0
+        }
+    ],
+    "action": {
+        "type": "join",
+        "user": {
+            "shortid": "8Q88GH",
+            "displayname": "Player_1",
+            "clientid": "6LFHTF",
+            "id": 1,
+            "teamid": 1,
+            "timeseq": 1,
+            "timeleft": 0
+        }
+    }
+};
+    const to: any   = {
+    "room": {
+        "_teams": {
+            "team_o": 0,
+            "team_x": 1
+        },
+        "_players": {
+            "6LFHTF": 0,
+            "8Q88GH": 1
+        },
+        "next_id": null,
+        "starttime": 1775854350372,
+        "_sequence": 3,
+        "updated": 16815,
+        "timeend": 17234,
+        "timesec": 15,
+        "events": [
+            {
+                "type": "newround",
+                "payload": true
+            }
+        ],
+        "status": 4,
+        "next_player": 1,
+        "next_action": "pick",
+        "isreplay": true
+    },
+    "state": {
+        "cells": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+        ]
+    },
+    "events": [],
+    "teams": [
+        {
+            "team_slug": "team_o",
+            "name": "Team O",
+            "color": "#1187fd",
+            "order": 0,
+            "players": [
+                0
+            ],
+            "rank": 2,
+            "score": 0
+        },
+        {
+            "team_slug": "team_x",
+            "name": "Team X",
+            "color": "#dd7575",
+            "order": 1,
+            "players": [
+                1
+            ],
+            "rank": 2,
+            "score": 0
+        }
+    ],
+    "players": [
+        {
+            "id": 0,
+            "shortid": "6LFHTF",
+            "displayname": "Player_0",
+            "portraitid": 1155,
+            "teamid": 0,
+            "rank": 2,
+            "score": 0
+        },
+        {
+            "id": 1,
+            "shortid": "8Q88GH",
+            "displayname": "Player_1",
+            "portraitid": 1973,
+            "teamid": 1,
+            "rank": 2,
+            "score": 0
+        }
+    ],
+    "action": {
+        "type": "gamestart",
+        "user": {
+            "shortid": "6LFHTF",
+            "displayname": "Player_0",
+            "id": 0,
+            "timeseq": 2,
+            "timeleft": 0
+        }
+    },
+    "timeend": null
+};
+    const d = delta(from, to);
+    console.log('Delta for new array key with fill op:', JSON.stringify(d));
+    assert(d['state']['cells'][0]?.op === 'fill', 'all-same array should produce fill op');
     const result = merge(from, d);
     assertEqual(result, to);
 });

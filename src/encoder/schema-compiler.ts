@@ -6,15 +6,15 @@
  * A schema node is one of:
  *   "uint" | "int" | "float" | "string" | "boolean" | "null" | "object" | …
  *     → primitive
- *   { $object: { key: schemaNode, … } }
- *     → object  (empty $object falls back to primitive 'object')
  *   { $map: { key: schemaNode, … } }
  *     → map     (empty $map uses primitive 'object' for values)
  *   { $array: schemaNode | record }
  *     → array
  *   { $static: schemaNode | record }
  *     → static
- *   { key: schemaNode, … }   (plain record, implicit $object)
+ *   { $slot: schemaNode }  (extension placeholder; $custom accepted as alias)
+ *     → custom
+ *   { key: schemaNode, … }   (plain record → object)
  *     → object  (empty record falls back to primitive 'object')
  */
 export function compileSchema(schema: any): CompiledNode {
@@ -27,14 +27,6 @@ export function compileSchema(schema: any): CompiledNode {
 
     if (typeof schema !== 'object' || schema === null) {
         return { kind: 'primitive', type: 'object' };
-    }
-
-    if ('$object' in schema) {
-        const inner = schema['$object'];
-        if (!inner || Object.keys(inner).length === 0) {
-            return { kind: 'primitive', type: 'object' };
-        }
-        return { kind: 'object', mapping: compileFieldMap(inner), fields: compileFields(inner) };
     }
 
     if ('$map' in schema) {
@@ -51,8 +43,8 @@ export function compileSchema(schema: any): CompiledNode {
         return { kind: 'enum', values: values as (string | number)[] };
     }
 
-    if ('$custom' in schema) {
-        const inner = schema['$custom'];
+    if ('$slot' in schema || '$custom' in schema) {
+        const inner = '$slot' in schema ? schema['$slot'] : schema['$custom'];
         const defaultNode: CompiledNode = (inner !== null && inner !== undefined &&
             (typeof inner === 'string' || Object.keys(inner).length > 0))
             ? compileSchema(inner)
@@ -68,7 +60,7 @@ export function compileSchema(schema: any): CompiledNode {
         return { kind: 'static', elementNode: compileElementSchema(schema['$static']) };
     }
 
-    // Plain record → implicit $object
+    // Plain record → object
     const keys = Object.keys(schema);
     if (keys.length === 0) {
         return { kind: 'primitive', type: 'object' };

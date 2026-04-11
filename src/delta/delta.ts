@@ -32,7 +32,12 @@ function objectDelta(
 
     for (const key of Object.keys(to)) {
         if (!(key in from)) {
-            result[key] = to[key];
+            if (Array.isArray(to[key])) {
+                const changes = arrayDelta([], to[key]);
+                result[key] = changes.length > 0 ? changes : to[key];
+            } else {
+                result[key] = to[key];
+            }
             continue;
         }
         const child = valueDelta(from[key], to[key]);
