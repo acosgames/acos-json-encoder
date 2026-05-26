@@ -25,7 +25,13 @@ function deepCloneNode(node: CompiledNode): CompiledNode {
     }
 }
 
-let registeredProtocols: Protocol[] = [{ type: 'default', index: 0, schema: compileSchema({}) } as Protocol]; // 1-based indexing; position 0 is reserved for fallback
+function deepCloneExtrasSchema(extras: Record<string, CompiledNode>): Record<string, CompiledNode> {
+    const clone: Record<string, CompiledNode> = {};
+    for (const key of Object.keys(extras)) clone[key] = deepCloneNode(extras[key]);
+    return clone;
+}
+
+let registeredProtocols: (Protocol | undefined)[] = [{ type: 'default', index: 0, schema: compileSchema({}) } as Protocol]; // 1-based indexing; position 0 is reserved for fallback
 let protocolMap: { [key: string]: number } = {};
 
 export function setDefaultDictionary(dictionaryList: string[]): void {
@@ -39,6 +45,17 @@ export function setDefaultDictionary(dictionaryList: string[]): void {
 const extensionRegistry: Record<string, Record<string, Record<string, any>>> = {};
 
 /**
+ * Lazily-populated cache: baseType → extensionName → compiled { schema, extrasSchema }.
+ * Entries are computed once on the first `applyExtension` call and reused thereafter,
+ * making subsequent apply/disable calls O(1) reference swaps instead of O(n) deep clones.
+ * Invalidated when `registerExtension` is called with the same baseType + name.
+ */
+const extensionSchemaCache: Map<string, Map<string, {
+    schema: CompiledNode;
+    extrasSchema?: Record<string, CompiledNode>;
+}>> = new Map();
+
+/**
  * Define a named extension for a registered protocol.
  * The extension is stored but not applied until `applyExtension` is called.
  *
@@ -49,6 +66,8 @@ const extensionRegistry: Record<string, Record<string, Record<string, any>>> = {
 export function registerExtension(baseType: string, name: string, overrides: Record<string, any>): void {
     if (!extensionRegistry[baseType]) extensionRegistry[baseType] = {};
     extensionRegistry[baseType][name] = overrides;
+    // Invalidate cached compiled schema so the next applyExtension recomputes it.
+    extensionSchemaCache.get(baseType)?.delete(name);
 }
 
 /**
@@ -64,8 +83,25 @@ export function applyExtension(baseType: string, name: string): void {
     if (!protocol.originalSchema) throw new Error(`Protocol '${baseType}' has no original schema.`);
     const exts = extensionRegistry[baseType];
     if (!exts || !exts[name]) throw new Error(`Extension '${name}' not registered for protocol '${baseType}'.`);
-    protocol.schema = deepCloneNode(protocol.originalSchema);
-    extendNode(protocol.schema, exts[name]);
+
+    // Populate the cache on first use: clone base schema once, extend, store.
+    if (!extensionSchemaCache.has(baseType)) extensionSchemaCache.set(baseType, new Map());
+    const byType = extensionSchemaCache.get(baseType)!;
+    if (!byType.has(name)) {
+        const schema = deepCloneNode(protocol.originalSchema);
+        extendNode(schema, exts[name]);
+        const extrasSchema = protocol.originalExtrasSchema
+            ? deepCloneExtrasSchema(protocol.originalExtrasSchema)
+            : undefined;
+        byType.set(name, { schema, extrasSchema });
+    }
+
+    // O(1): swap protocol.schema to the cached, pre-compiled extended schema.
+    // encode/decode only READ protocol.schema (never write), so sharing the reference
+    // is safe in Node.js's single-threaded event loop.
+    const cached = byType.get(name)!;
+    protocol.schema = cached.schema;
+    protocol.extrasSchema = cached.extrasSchema;
 }
 
 /**
@@ -74,10 +110,33 @@ export function applyExtension(baseType: string, name: string): void {
 export function disableExtension(baseType: string): void {
     const protocol = getProtocol(baseType);
     if (!protocol.originalSchema) throw new Error(`Protocol '${baseType}' has no original schema.`);
-    protocol.schema = deepCloneNode(protocol.originalSchema);
+    // O(1): swap back to the original (never-mutated) schema reference.
+    protocol.schema = protocol.originalSchema;
+    protocol.extrasSchema = protocol.originalExtrasSchema;
 }
 
 function extendNode(node: CompiledNode, overrides: Record<string, any>): void {
+    // Handle a root-level variants node.
+    // Supported extension formats:
+    //   { payload: { $variants: { ... } } }  – mirrors registerProtocol format
+    //   { $variants: { ... } }               – direct
+    //   { variantName: def, ... }            – direct defs
+    if (node.kind === 'variants') {
+        let src = overrides;
+        if (!('$variants' in overrides) && 'payload' in overrides && typeof overrides['payload'] === 'object') {
+            src = overrides['payload'] as Record<string, any>;
+        }
+        const defs = ('$variants' in src) ? src['$variants'] : src;
+        if (defs !== null && typeof defs === 'object' && !Array.isArray(defs)) {
+            for (const [name, def] of Object.entries(defs)) {
+                if (!node.variants.some(v => v.name === name)) {
+                    node.variants.push({ name, node: compileSchema(def as any) });
+                }
+            }
+        }
+        return;
+    }
+
     if (node.kind !== 'object') return;
     for (const key of Object.keys(overrides)) {
         const existingIdx = node.mapping[key];
@@ -109,6 +168,18 @@ function extendNode(node: CompiledNode, overrides: Record<string, any>): void {
                     if (inner !== null && typeof inner === 'object' && !Array.isArray(inner)) {
                         extendNode(child.elementNode, inner);
                     }
+                } else if (child.kind === 'variants') {
+                    // Extend with new named variant types; unwrap $variants wrapper if present
+                    const defs = (overrides[key] !== null && typeof overrides[key] === 'object' && '$variants' in overrides[key])
+                        ? overrides[key]['$variants']
+                        : overrides[key];
+                    if (defs !== null && typeof defs === 'object' && !Array.isArray(defs)) {
+                        for (const [name, def] of Object.entries(defs)) {
+                            if (!child.variants.some(v => v.name === name)) {
+                                child.variants.push({ name, node: compileSchema(def as any) });
+                            }
+                        }
+                    }
                 }
             }
             // else: leaf or unrecursable — skip silently
@@ -138,7 +209,7 @@ function describeNode(node: CompiledNode): any {
             for (const f of node.fields) out[f.key] = describeNode(f.node);
             return { $map: out };
         }
-        case 'custom': return describeNode(node.node);
+        case 'custom': return { $slot: describeNode(node.node) };
         case 'enum':   return { $enum: node.values };
         case 'variants': {
             const out: Record<string, any> = {};
@@ -154,6 +225,119 @@ export function getProtocolSchema(type: string): any {
     return describeNode(protocol.schema);
 }
 
+/**
+ * Serialize a registered protocol to a plain JSON-serializable object.
+ *
+ * The returned object includes `$index` (the server-side registration index) so that
+ * `importProtocol` on the client can register at exactly the same wire position.
+ * This ensures the first byte of every encoded message matches on both sides
+ * regardless of how many other protocols the server has registered.
+ *
+ * @param type  The protocol type name.
+ */
+export function exportProtocol(type: string): any {
+    const protocol = getProtocol(type);
+    if (!protocol || protocol.index === 0) throw new Error(`Protocol '${type}' is not registered.`);
+
+    const result: Record<string, any> = {
+        $index: protocol.index,
+        type:   protocol.type,
+        payload: describeNode(protocol.originalSchema ?? protocol.schema),
+    };
+
+    // Include any schema-registered top-level extra keys (e.g. `user`, `meta`).
+    const extrasSource = protocol.originalExtrasSchema ?? protocol.extrasSchema;
+    if (extrasSource) {
+        for (const [key, node] of Object.entries(extrasSource)) result[key] = describeNode(node);
+    }
+
+    // Dictionary as a plain string array — same format `registerProtocol` accepts.
+    if (protocol.dictionary?.order && protocol.dictionary.order.length > 0) {
+        result.$dictionary = [...protocol.dictionary.order];
+    }
+
+    return result;
+}
+
+/**
+ * Register a protocol received from the server (produced by `exportProtocol`).
+ *
+ * Critically, the protocol is stored at the **server's original index** (`$index`),
+ * so the wire format is compatible: both sides use the same first byte for the same
+ * protocol regardless of how many other protocols either side has registered.
+ *
+ * Idempotent — safe to call multiple times; no-op if the type is already registered.
+ *
+ * Typical WebSocket handshake:
+ * ```
+ * // Server
+ * ws.send(JSON.stringify({ proto: exportProtocol('gameupdate') }));
+ *
+ * // Client
+ * importProtocol(JSON.parse(evt.data).proto);
+ * ```
+ *
+ * @param data  A plain object from `exportProtocol` (or its JSON round-trip).
+ */
+export function importProtocol(data: any): void {
+    if (!data || typeof data !== 'object' || typeof data.type !== 'string') {
+        throw new Error('importProtocol: data must be an object with a string "type" field.');
+    }
+    if (data.type in protocolMap) return; // already registered — idempotent
+
+    const serverIndex: number = typeof data.$index === 'number' ? data.$index : registeredProtocols.length;
+    const { $index, $dictionary, type: ptype, payload, ...extras } = data;
+
+    let dictionary: EncoderDict;
+    if (Array.isArray($dictionary) && $dictionary.length > 0) {
+        const keys: Record<string, number> = {};
+        ($dictionary as string[]).forEach((k, i) => { keys[k] = i; });
+        dictionary = { count: $dictionary.length, keys, order: $dictionary, frozen: true };
+    } else {
+        const d = createDefaultDict([]); d.frozen = true; dictionary = d;
+    }
+
+    const schema = compileSchema(payload);
+    const extrasSchema: Record<string, CompiledNode> = {};
+    for (const key of Object.keys(extras)) extrasSchema[key] = compileSchema(extras[key]);
+    const hasExtras = Object.keys(extrasSchema).length > 0;
+
+    // Expand the array to accommodate the server's index (sparse slots stay undefined).
+    while (registeredProtocols.length <= serverIndex) registeredProtocols.push(undefined);
+
+    protocolMap[ptype] = serverIndex;
+    registeredProtocols[serverIndex] = {
+        type: ptype, index: serverIndex, schema, originalSchema: deepCloneNode(schema), dictionary,
+        ...(hasExtras && { extrasSchema, originalExtrasSchema: deepCloneExtrasSchema(extrasSchema) }),
+    };
+}
+
+/**
+ * Serialize a named extension to a plain JSON-serializable object.
+ *
+ * @param baseType  The protocol type name.
+ * @param name      The extension name (as passed to `registerExtension`).
+ */
+export function exportExtension(baseType: string, name: string): any {
+    const exts = extensionRegistry[baseType];
+    if (!exts?.[name]) throw new Error(`Extension '${name}' not registered for protocol '${baseType}'.`);
+    return { baseType, name, overrides: exts[name] };
+}
+
+/**
+ * Register an extension received from the server (produced by `exportExtension`).
+ * Idempotent — no-op if already registered.
+ *
+ * @param data  A plain object from `exportExtension` (or its JSON round-trip).
+ */
+export function importExtension(data: any): void {
+    if (!data || typeof data.baseType !== 'string' || typeof data.name !== 'string') {
+        throw new Error('importExtension: data must have string "baseType" and "name" fields.');
+    }
+    if (extensionRegistry[data.baseType]?.[data.name]) return; // already registered
+    registerExtension(data.baseType, data.name, data.overrides ?? {});
+}
+
 export function registerProtocol(protocol: any, dictionaryList?: string[]) {
 
     if (!protocol.type || typeof protocol.type !== 'string') {
@@ -165,24 +349,42 @@ export function registerProtocol(protocol: any, dictionaryList?: string[]) {
     }
 
     let dictionary: EncoderDict | undefined = undefined;
-    // if (Array.isArray(dictionaryList) && dictionaryList.length > 0) {
-    dictionary = dictionaryList || protocol.dictionary || createDefaultDict([]);
-    if (dictionary)
-        dictionary.frozen = true;
-    // }
+    if (Array.isArray(dictionaryList)) {
+        // Convert string[] to a proper EncoderDict so that serializeEX/deserializeEX
+        // (which require .keys and .order) work correctly alongside encodeString/decodeString.
+        const keys: Record<string, number> = {};
+        dictionaryList.forEach((k, i) => { keys[k] = i; });
+        dictionary = { count: dictionaryList.length, keys, order: dictionaryList, frozen: true };
+    } else {
+        dictionary = (protocol.dictionary as EncoderDict | undefined) ?? createDefaultDict([]);
+        if (dictionary) dictionary.frozen = true;
+    }
 
     const schema = compileSchema(protocol.payload);
+
+    // Compile schemas for any top-level extra keys defined alongside 'type'/'payload'.
+    const reservedKeys = new Set(['type', 'payload', 'dictionary']);
+    const extrasSchema: Record<string, CompiledNode> = {};
+    for (const key of Object.keys(protocol)) {
+        if (!reservedKeys.has(key)) {
+            extrasSchema[key] = compileSchema(protocol[key]);
+        }
+    }
+
     const index = registeredProtocols.length;
     protocolMap[protocol.type] = index;
 
-    registeredProtocols.push({ type: protocol.type, index, schema, originalSchema: deepCloneNode(schema), dictionary });
+    const hasExtras = Object.keys(extrasSchema).length > 0;
+    registeredProtocols.push({
+        type: protocol.type, index, schema, originalSchema: deepCloneNode(schema), dictionary,
+        ...(hasExtras && { extrasSchema, originalExtrasSchema: deepCloneExtrasSchema(extrasSchema) }),
+    });
 }
 
 function getProtocolById(index: number): Protocol {
-    if (index < 0 || index >= registeredProtocols.length) {
-        throw new Error(`Protocol index ${index} is out of range.`);
-    }
-    return registeredProtocols[index];
+    const p = registeredProtocols[index];
+    if (!p) throw new Error(`Protocol index ${index} is out of range or not registered.`);
+    return p;
 }
 function getProtocol(type: string): Protocol {
     if (type === undefined || typeof type !== 'string') {
@@ -200,6 +402,7 @@ export function protoEncode(payload: any): ArrayBuffer {
 
     let protocol = getProtocol(payload?.type);
     let buffer: number[] = [protocol.index];
+    const cache: any = {};
 
     if (protocol.index === 0) {
         // Fallback: encode with generic serialiser using the default dictionary
@@ -208,7 +411,28 @@ export function protoEncode(payload: any): ArrayBuffer {
         serializeEX(payload, buffer, fallbackDict, {});
         return new Uint8Array(buffer).buffer;
     }
-    encodeNode(payload.payload, protocol, protocol.schema, buffer);
+    encodeNode(payload.payload, protocol, protocol.schema, buffer, cache);
+
+    // Encode any extra top-level keys (everything except 'type' and 'payload').
+    // Keys with a registered schema are schema-encoded; others fall back to generic encoding.
+    // Use a fresh cache to keep schema string positions separate from generic encoder positions
+    // (the two systems use incompatible back-reference formats).
+    const extraKeys = payload !== null && typeof payload === 'object'
+        ? Object.keys(payload).filter(k => k !== 'type' && k !== 'payload')
+        : [];
+    if (extraKeys.length > 0) {
+        const extrasCache: any = {};
+        writeLEB128(buffer, extraKeys.length);
+        for (const key of extraKeys) {
+            encodeString(key, buffer, protocol.dictionary, extrasCache);
+            const keySchema = protocol.extrasSchema?.[key];
+            if (keySchema) {
+                encodeNode(payload[key], protocol, keySchema, buffer);
+            } else {
+                serializeEX(payload[key], buffer, protocol.dictionary, extrasCache);
+            }
+        }
+    }
 
     return new Uint8Array(buffer).buffer;
 }
@@ -236,9 +460,15 @@ export function encodeNode(value: any, protocol: Protocol, node: CompiledNode, b
         case 'variants': {
             const name = value?.type;
             const vidx = name !== undefined ? node.variants.findIndex(v => v.name === name) : -1;
-            if (vidx < 0) throw new Error(`[protocol] Unknown variant type: ${name}`);
-            writeLEB128(buffer, vidx);
-            encodeNode(value.payload, protocol, node.variants[vidx].node, buffer, cache);
+            if (vidx < 0) {
+                // Unknown variant: sentinel = node.variants.length, then name string, then generic payload
+                writeLEB128(buffer, node.variants.length);
+                encodeString(name ?? '', buffer, protocol.dictionary, cache);
+                serializeEX(value?.payload, buffer, protocol.dictionary, cache);
+            } else {
+                writeLEB128(buffer, vidx);
+                encodeNode(value.payload, protocol, node.variants[vidx].node, buffer, cache);
+            }
             return;
         }
     }
@@ -590,7 +820,26 @@ export function protoDecode(data: ArrayBuffer | Uint8Array, dictionaryList?: Enc
     ref.dictionary = dictionaryList || protocol.dictionary;
 
     const payload = decodeNode(ref, protocol, protocol.schema);
-    return { type: protocol.type, payload };
+    const result: Record<string, any> = { type: protocol.type, payload };
+
+    // Decode any extra top-level keys that follow the schema payload.
+    // Keys with a registered schema are schema-decoded; others use the generic decoder.
+    if (ref.pos < ref.view.byteLength) {
+        const extraCount = readLEB128(ref);
+        for (let i = 0; i < extraCount; i++) {
+            const key = decodeString(ref);
+            const keySchema = protocol.extrasSchema?.[key];
+            if (keySchema) {
+                result[key] = decodeNode(ref, protocol, keySchema);
+            } else {
+                const exRef = { buffer: ref.view, pos: ref.pos, dict: ref.dictionary };
+                result[key] = deserializeEX(exRef);
+                ref.pos = exRef.pos;
+            }
+        }
+    }
+
+    return result as { type: string; payload: any };
 }
 
 
@@ -617,7 +866,15 @@ export function decodeNode(ref: DecodeRef, protocol: Protocol, node: CompiledNod
         }
         case 'variants': {
             const vidx = readLEB128(ref);
-            if (vidx >= node.variants.length) throw new Error(`[protocol] Unknown variant index: ${vidx}`);
+            if (vidx === node.variants.length) {
+                // Unknown variant: read name string, then decode payload generically
+                const name = decodeString(ref);
+                const exRef = { buffer: ref.view, pos: ref.pos, dict: ref.dictionary };
+                const payload = deserializeEX(exRef);
+                ref.pos = exRef.pos;
+                return { type: name, payload };
+            }
+            if (vidx > node.variants.length) throw new Error(`[protocol] Unknown variant index: ${vidx}`);
             const payload = decodeNode(ref, protocol, node.variants[vidx].node);
             return { type: node.variants[vidx].name, payload };
         }
@@ -1085,8 +1342,19 @@ function dbgEncodeVariants(
 ): void {
     const name = value?.type;
     const idx = name !== undefined ? node.variants.findIndex(v => v.name === name) : -1;
-    if (idx < 0) throw new Error(`[protocol] Unknown variant type: ${name}`);
     const typeStart = buffer.length;
+    if (idx < 0) {
+        // Unknown variant: sentinel + name string + generic payload
+        writeLEB128(buffer, node.variants.length);
+        profile.push({ key: '<type>', bytes: buffer.length - typeStart });
+        const nameStart = buffer.length;
+        encodeString(name ?? '', buffer, protocol.dictionary, cache);
+        profile.push({ key: '<name>', bytes: buffer.length - nameStart });
+        const payloadStart = buffer.length;
+        serializeEX(value?.payload, buffer, protocol.dictionary, cache);
+        profile.push({ key: 'payload', bytes: buffer.length - payloadStart });
+        return;
+    }
     writeLEB128(buffer, idx);
     profile.push({ key: '<type>', bytes: buffer.length - typeStart });
     const payloadStart = buffer.length;
@@ -1125,6 +1393,25 @@ export function protoEncodeDebug(payload: any): { buffer: ArrayBuffer; report: s
     }
 
     dbgEncodeNode(payload.payload, protocol, protocol.schema, buffer, {}, profile);
+
+    // Encode any extra top-level keys generically, with profiling
+    const cache: any = {};
+    const extraKeys = payload !== null && typeof payload === 'object'
+        ? Object.keys(payload).filter(k => k !== 'type' && k !== 'payload')
+        : [];
+    if (extraKeys.length > 0) {
+        const extrasStart = buffer.length;
+        writeLEB128(buffer, extraKeys.length);
+        for (const key of extraKeys) {
+            const keyStart = buffer.length;
+            encodeString(key, buffer, protocol.dictionary, cache);
+            const valStart = buffer.length;
+            serializeEX(payload[key], buffer, protocol.dictionary, cache);
+            profile.push({ key, bytes: buffer.length - keyStart,
+                children: [{ key: '<key>', bytes: valStart - keyStart }, { key: '<value>', bytes: buffer.length - valStart }] });
+        }
+    }
+
     return {
         buffer: new Uint8Array(buffer).buffer,
         report: `total: ${buffer.length}B\n` + formatProfile(profile),

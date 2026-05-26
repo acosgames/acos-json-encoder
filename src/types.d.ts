@@ -44,6 +44,9 @@ type Protocol = {
     schema: CompiledNode;
     originalSchema?: CompiledNode;
     dictionary?: EncoderDict;
+    /** Compiled schemas for top-level keys beyond 'type' and 'payload'. */
+    extrasSchema?: Record<string, CompiledNode>;
+    originalExtrasSchema?: Record<string, CompiledNode>;
 }
 
 type PrimitiveKind =

@@ -1,3 +1,3 @@
-export { encode, decode, serialize, deserialize, serializeEX, deserializeEX, createDefaultDict } from "./encoder/encoder.js";
-export { registerProtocol, registerExtension, applyExtension, disableExtension, protoEncode, protoDecode, protoEncodeDebug, setDefaultDictionary, getProtocolSchema } from "./encoder/protocol.js";
-export { delta, merge, hidden, unhidden } from "./delta/delta.js";
+export { encode, decode, serialize, deserialize, serializeEX, deserializeEX, createDefaultDict } from "./encoder/encoder";
+export { registerProtocol, registerExtension, applyExtension, disableExtension, protoEncode, protoDecode, protoEncodeDebug, setDefaultDictionary, getProtocolSchema, exportProtocol, importProtocol, exportExtension, importExtension } from "./encoder/protocol";
+export { delta, merge, hidden, unhidden } from "./delta/delta";

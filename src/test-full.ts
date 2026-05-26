@@ -8,6 +8,7 @@ import {
     registerProtocol, registerExtension, applyExtension, disableExtension,
     protoEncode as _protoEncodeRaw, protoDecode,
     setDefaultDictionary, getProtocolSchema,
+    exportProtocol, importProtocol, exportExtension, importExtension,
     delta, merge, hidden, unhidden,
 } from "./index";
 import { areEqual } from "./encoder/helper";
@@ -563,7 +564,7 @@ test('extension: switch to poker extension', () => {
 test('extension: switching removes previous extension fields', () => {
     // chess added players.attr.level; after switching to poker it should be gone
     const schema = getProtocolSchema('p_ext');
-    assert(schema.players.$static.attr === 'any', 'players.attr should be $slot/any after switching away from chess');
+    assert(schema.players.$static.attr?.$slot === 'any', 'players.attr should be $slot/any after switching away from chess');
     // chess added pick/checkmate; poker replaces with bet/fold/allin
     assert(schema.eventType.$enum.includes('bet'), 'poker enum values present');
     assert(!schema.eventType.$enum.includes('pick'), 'chess enum values absent after switch');
@@ -580,7 +581,7 @@ test('extension: disable reverts to base schema', () => {
 
 test('extension: schema after disable shows $slot default', () => {
     const schema = getProtocolSchema('p_ext');
-    assert(schema.state === 'any', 'state should be any after disable');
+    assert(schema.state?.$slot === 'any', 'state should be $slot(any) after disable');
     assert(schema.newkey === undefined, 'newkey should be gone after disable');
 });
 
@@ -659,6 +660,74 @@ registerProtocol({ type: 'p_fallback_known', payload: { id: 'uint' } }, DICT);
 
 test('registered protocol after fallback still works', () => {
     const msg = { type: 'p_fallback_known', payload: { id: 42 } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+// ─── Section: top-level extra keys ────────────────────────────────────────────
+
+console.log(`${C.cyan}${C.bold}\n── Protocol: top-level extra keys ──${C.reset}`);
+
+// Generic (unregistered) extra keys
+registerProtocol({
+    type: 'p_topextras',
+    payload: { seq: 'uint', status: 'string' },
+}, DICT);
+
+test('top-level extra key round-trips', () => {
+    const msg = { type: 'p_topextras', payload: { seq: 1, status: 'ok' }, user: { id: 42, name: 'Alice' } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+test('multiple top-level extra keys round-trip', () => {
+    const msg = { type: 'p_topextras', payload: { seq: 2 }, user: { id: 7 }, meta: { ts: 12345, region: 'eu' } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+test('no extra keys still works', () => {
+    const msg = { type: 'p_topextras', payload: { seq: 3, status: 'done' } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+test('top-level extra key with nested objects round-trips', () => {
+    const msg = { type: 'p_topextras', payload: { seq: 4 }, user: { id: 1, roles: ['admin', 'player'], active: true } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+// Schema-registered extra keys
+registerProtocol({
+    type: 'p_topextras_schema',
+    payload: { seq: 'uint', status: 'string' },
+    user: { id: 'uint', name: 'string' },
+    meta: { ts: 'uint', region: 'string' },
+}, DICT);
+
+// Schema-registered without extra keys
+registerProtocol({
+    type: 'p_topextras_schema2',
+    payload: { seq: 'uint', status: 'string' },
+}, DICT);
+
+test('schema-registered extra key uses typed encoding', () => {
+    const msg = { type: 'p_topextras_schema', payload: { seq: 1, status: 'ok' }, user: { id: 42, name: 'Alice' } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+test('schema-registered without extra key in protocol uses typed encoding', () => {
+    const msg = { type: 'p_topextras_schema2', payload: { seq: 1, status: 'ok' }, user: { id: 42, name: 'Alice' } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+test('schema-registered extra key: multiple typed extras round-trip', () => {
+    const msg = { type: 'p_topextras_schema', payload: { seq: 2 }, user: { id: 7, name: 'Bob' }, meta: { ts: 1716000000, region: 'eu' } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+test('schema-registered extra key: no extras still works', () => {
+    const msg = { type: 'p_topextras_schema', payload: { seq: 3, status: 'done' } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+test('schema-registered extra key: unregistered extra still falls back to generic', () => {
+    const msg = { type: 'p_topextras_schema', payload: { seq: 4 }, user: { id: 1, name: 'Carol' }, extra: { anything: true } };
     assertEqual(protoDecode(protoEncode(msg)), msg);
 });
 
@@ -1076,6 +1145,11 @@ test('full board refresh in protocol', () => {
 
 console.log(`${C.cyan}${C.bold}\n── $variants ──${C.reset}`);
 
+
+
+
+
+
 registerProtocol({
     type: 'p_actions',
     payload: {
@@ -1089,6 +1163,96 @@ registerProtocol({
         }
     }
 }, DICT);
+
+
+registerProtocol({
+    type: 'p_actions2',
+    payload: {
+        $variants: {
+            gamestart: { numPlayers: 'uint', mode: 'string' },
+            pick:      { cardIndex: 'uint' },
+            move:      { from: 'uint', to: 'uint' },
+        }
+    },
+    user: {
+        shortid: 'string', 
+        displayname: 'string',
+        teamid: 'uint'
+    }
+}, DICT);
+
+test('$variants2: encode/decode gamestart', () => {
+    const msg = { type: 'p_actions2', payload: { type: 'gamestart', payload: { numPlayers: 4, mode: 'ranked' } } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+test('$variants2: encode/decode gamestart2', () => {
+    const msg = { type: 'p_actions2', payload: { type: 'gamestart2', payload: { numPlayers: 4, mode: 'ranked' } } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+test('$variants2: encode/decode extension checkmate before register', () => {
+    const msg = { type: 'p_actions2', payload: { type: 'checkmate', payload: { winner: 0 } } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+registerExtension('p_actions2', 'chess2', {
+    payload: {
+     $variants: { checkmate: { winner: 'uint' }, resign: { player: 'uint' } }
+    }
+});
+
+test('$variants2: extension adds variants (smaller than generic)', () => {
+    // Without extension: 'checkmate' is unknown → generic encoding
+    const genericBytes = protoEncode({ type: 'p_actions2', payload: { type: 'checkmate', payload: { winner: 0 } } }).byteLength;
+    // With extension: 'checkmate' is schema-encoded → smaller
+    applyExtension('p_actions2', 'chess2');
+    const schemaBytes = protoEncode({ type: 'p_actions2', payload: { type: 'checkmate', payload: { winner: 0 } } }).byteLength;
+    disableExtension('p_actions2');
+    assert(schemaBytes < genericBytes, `schema-encoded (${schemaBytes}B) should be smaller than generic (${genericBytes}B)`);
+});
+
+test('$variants2: extension resign round-trips', () => {
+    applyExtension('p_actions2', 'chess2');
+    const msg = { type: 'p_actions2', payload: { type: 'resign', payload: { player: 1 } } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+    disableExtension('p_actions2');
+});
+
+test('$variants2: base variants still work with extension active', () => {
+    applyExtension('p_actions2', 'chess2');
+    const msg = { type: 'p_actions2', payload: { type: 'pick', payload: { cardIndex: 3 } } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+    disableExtension('p_actions2');
+});
+
+test('$variants2: unknown variant uses generic encoding after extension active', () => {
+    applyExtension('p_actions2', 'chess2');
+    const msg = { type: 'p_actions2', payload: { type: 'unknown_action', payload: { x: 1 } } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+    disableExtension('p_actions2');
+});
+
+test('$variants2: user extra key round-trips with variants payload', () => {
+    const msg = { type: 'p_actions2', payload: { type: 'pick', payload: { cardIndex: 3 } }, user: { shortid: 'ABC123', displayname: 'Player1', teamid: 0 } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+test('$variants2: user extra key is schema-encoded (smaller than generic)', () => {
+    const withUser = protoEncode({ type: 'p_actions2', payload: { type: 'pick', payload: { cardIndex: 3 } }, user: { shortid: 'ABC123', displayname: 'Player1', teamid: 0 } }).byteLength;
+    const withoutUser = protoEncode({ type: 'p_actions2', payload: { type: 'pick', payload: { cardIndex: 3 } } }).byteLength;
+    assert(withUser > withoutUser, 'message with user should be larger');
+    // Generic encoding of the same user object:
+    const generic = JSON.stringify({ shortid: 'ABC123', displayname: 'Player1', teamid: 0 }).length;
+    assert(withUser - withoutUser < generic, `schema user (${withUser - withoutUser}B overhead) should be smaller than raw JSON (${generic}B)`);
+});
+
+test('$variants2: user extra + extension together round-trip', () => {
+    applyExtension('p_actions2', 'chess2');
+    const msg = { type: 'p_actions2', payload: { type: 'checkmate', payload: { winner: 1 } }, user: { shortid: 'XYZ999', displayname: 'Champ', teamid: 2 } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+    disableExtension('p_actions2');
+});
 
 test('$variants: encode/decode gamestart', () => {
     const msg = { type: 'p_actions', payload: { seq: 1, action: { type: 'gamestart', payload: { numPlayers: 4, mode: 'ranked' } } } };
@@ -1111,6 +1275,57 @@ test('$variants: different variants write different byte counts', () => {
     const bytesA = protoEncode(msgA).byteLength;
     const bytesB = protoEncode(msgB).byteLength;
     assert(bytesB > bytesA, `gamestart (${bytesB}B) should be larger than pick (${bytesA}B)`);
+});
+
+registerExtension('p_actions', 'chess', {
+    action: { $variants: { checkmate: { winner: 'uint' }, resign: { player: 'uint' } } }
+});
+
+test('$variants: extension adds new variant types', () => {
+    applyExtension('p_actions', 'chess');
+    const msg = { type: 'p_actions', payload: { seq: 4, action: { type: 'checkmate', payload: { winner: 0 } } } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+    disableExtension('p_actions');
+});
+
+test('$variants: multiple new variants from extension round-trip', () => {
+    applyExtension('p_actions', 'chess');
+    const msg1 = { type: 'p_actions', payload: { seq: 5, action: { type: 'resign', payload: { player: 1 } } } };
+    const msg2 = { type: 'p_actions', payload: { seq: 6, action: { type: 'move', payload: { from: 3, to: 7 } } } };
+    assertEqual(protoDecode(protoEncode(msg1)), msg1);
+    assertEqual(protoDecode(protoEncode(msg2)), msg2);
+    disableExtension('p_actions');
+});
+
+test('$variants: after disable, extension variants are gone', () => {
+    // After disable, schema should not have extension variants
+    const schema = getProtocolSchema('p_actions');
+    assert(schema?.action?.$variants?.checkmate === undefined, 'checkmate variant absent after disable');
+    assert(schema?.action?.$variants?.move !== undefined, 'base move variant still present');
+});
+
+test('$variants: base variants still work when extension is active', () => {
+    applyExtension('p_actions', 'chess');
+    const msg = { type: 'p_actions', payload: { seq: 7, action: { type: 'pick', payload: { cardIndex: 5 } } } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+    disableExtension('p_actions');
+});
+
+test('$variants: unknown type uses generic encoding', () => {
+    const msg = { type: 'p_actions', payload: { seq: 8, action: { type: 'custom_event', payload: { data: 'hello', value: 42 } } } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+test('$variants: unknown type with complex payload round-trips', () => {
+    const msg = { type: 'p_actions', payload: { seq: 9, action: { type: 'game_specific', payload: { items: [1, 2, 3], meta: { x: 'y' } } } } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+test('$variants: known variants still work alongside unknown', () => {
+    const known = { type: 'p_actions', payload: { seq: 10, action: { type: 'move', payload: { from: 1, to: 5 } } } };
+    const unknown = { type: 'p_actions', payload: { seq: 11, action: { type: 'teleport', payload: { x: 3, y: 7 } } } };
+    assertEqual(protoDecode(protoEncode(known)), known);
+    assertEqual(protoDecode(protoEncode(unknown)), unknown);
 });
 
 // ─── Section: extensible $static object fields ────────────────────────────────
@@ -1160,6 +1375,137 @@ test('extensible $static: after disabling extension, extended fields are gone', 
     assert(getProtocolSchema('p_ext_static')?.players?.$static?.rating === undefined, 'rating removed after disable');
 });
 
+// ─── Section: Protocol export / import ───────────────────────────────────────
+
+console.log(`${C.cyan}${C.bold}\n── Protocol export / import ──${C.reset}`);
+
+// Tests use explicit large $index values (200+) to avoid overwriting slots used by
+// protocols already registered during this test run.
+
+test('importProtocol: registers at specified $index and wire byte matches', () => {
+    importProtocol({ $index: 200, type: 'p_import_basic', payload: { x: 'uint', y: 'string' } });
+    const msg = { type: 'p_import_basic', payload: { x: 42, y: 'hello' } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+    const buf = new Uint8Array(protoEncode(msg));
+    assert(buf[0] === 200, `first wire byte should be 200, got ${buf[0]}`);
+});
+
+test('exportProtocol: $index is a positive number matching the registered index', () => {
+    const exported = exportProtocol('p_primitives');
+    assert(typeof exported.$index === 'number' && exported.$index > 0, '$index should be a positive number');
+    assert(exported.type === 'p_primitives', 'type should be preserved');
+    assert(exported.payload !== undefined, 'payload description should be included');
+});
+
+test('exportProtocol/importProtocol: JSON round-trip round-trips encode/decode', () => {
+    // Simulate the server exporting a protocol and the client importing it.
+    // We use a fresh $index to avoid overwriting existing slots.
+    const exported = exportProtocol('p_primitives');
+    importProtocol(JSON.parse(JSON.stringify({ ...exported, $index: 201, type: 'p_primitives_import' })));
+    const msg = { type: 'p_primitives_import', payload: { u: 42, i: -7, s: 'hello', b: true } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+    const buf = new Uint8Array(protoEncode(msg));
+    assert(buf[0] === 201, `first wire byte should be 201, got ${buf[0]}`);
+});
+
+test('importProtocol: idempotent — second call with same type is a no-op', () => {
+    importProtocol({ $index: 202, type: 'p_idempotent', payload: { val: 'uint' } });
+    importProtocol({ $index: 202, type: 'p_idempotent', payload: { val: 'uint' } }); // must not throw
+    assertEqual(protoDecode(protoEncode({ type: 'p_idempotent', payload: { val: 7 } })),
+                                        { type: 'p_idempotent', payload: { val: 7 } });
+});
+
+test('importProtocol: extras schema round-trips correctly', () => {
+    importProtocol({
+        $index: 203,
+        type: 'p_import_extras',
+        payload: { seq: 'uint', status: 'string' },
+        user: { id: 'uint', name: 'string' },
+    });
+    const msg = {
+        type: 'p_import_extras',
+        payload: { seq: 1, status: 'ok' },
+        user: { id: 5, name: 'Alice' },
+    };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+test('importProtocol: $variants payload round-trips correctly', () => {
+    importProtocol({
+        $index: 204,
+        type: 'p_import_variants',
+        payload: { $variants: { pick: { cardIndex: 'uint' }, move: { from: 'uint', to: 'uint' } } },
+    });
+    const msg = { type: 'p_import_variants', payload: { type: 'pick', payload: { cardIndex: 5 } } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+test('exportExtension: exported object contains baseType, name, and overrides', () => {
+    const ext = exportExtension('p_actions', 'chess');
+    assert(ext.baseType === 'p_actions', 'baseType should be p_actions');
+    assert(ext.name === 'chess', 'name should be chess');
+    assert(typeof ext.overrides === 'object', 'overrides should be an object');
+});
+
+test('importExtension: extension import + apply works on an imported protocol', () => {
+    importProtocol({
+        $index: 205,
+        type: 'p_import_ext_base',
+        payload: { seq: 'uint', action: { $variants: { gamestart: { numPlayers: 'uint' }, pick: { cardIndex: 'uint' } } } },
+    });
+    // Import the chess extension (originally for p_actions) adapted to the new type
+    const chessDef = exportExtension('p_actions', 'chess'); // { baseType, name, overrides }
+    importExtension({ baseType: 'p_import_ext_base', name: 'chess', overrides: chessDef.overrides });
+    importExtension({ baseType: 'p_import_ext_base', name: 'chess', overrides: chessDef.overrides }); // idempotent
+    applyExtension('p_import_ext_base', 'chess');
+    const msg = { type: 'p_import_ext_base', payload: { seq: 1, action: { type: 'checkmate', payload: { winner: 0 } } } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+    disableExtension('p_import_ext_base');
+});
+
+// ─── Section: Extension caching (O(1) apply/disable) ─────────────────────────
+
+console.log(`${C.cyan}${C.bold}\n── Extension caching (O(1) apply/disable) ──${C.reset}`);
+
+test('applyExtension/disableExtension produce consistent schemas on repeated calls', () => {
+    applyExtension('p_actions', 'chess');
+    const ref1 = getProtocolSchema('p_actions');
+    disableExtension('p_actions');
+    applyExtension('p_actions', 'chess');
+    const ref2 = getProtocolSchema('p_actions');
+    assertEqual(ref1, ref2); // same extension → same schema shape
+    disableExtension('p_actions');
+});
+
+test('rapid apply/disable cycles produce correct round-trips', () => {
+    for (let i = 0; i < 5; i++) {
+        applyExtension('p_actions', 'chess');
+        const ext = { type: 'p_actions', payload: { seq: i, action: { type: 'checkmate', payload: { winner: i % 2 } } } };
+        assertEqual(protoDecode(protoEncode(ext)), ext);
+        disableExtension('p_actions');
+        const base = { type: 'p_actions', payload: { seq: i, action: { type: 'pick', payload: { cardIndex: i } } } };
+        assertEqual(protoDecode(protoEncode(base)), base);
+    }
+});
+
+test('registerExtension invalidates cache so re-register takes effect', () => {
+    applyExtension('p_actions2', 'chess2'); // populate cache
+    disableExtension('p_actions2');
+    // Re-register with an extra variant
+    registerExtension('p_actions2', 'chess2', {
+        payload: { $variants: { checkmate: { winner: 'uint' }, resign: { player: 'uint' }, draw: {} } }
+    });
+    applyExtension('p_actions2', 'chess2');
+    const msg = { type: 'p_actions2', payload: { type: 'draw', payload: {} } };
+    assertEqual(protoDecode(protoEncode(msg)), msg); // 'draw' only present if cache was invalidated
+    // Restore original extension
+    registerExtension('p_actions2', 'chess2', {
+        payload: { $variants: { checkmate: { winner: 'uint' }, resign: { player: 'uint' } } }
+    });
+    disableExtension('p_actions2');
+});
+
 // ─── Results ─────────────────────────────────────────────────────────────────
 
 console.log(`\n── Results: ${failed === 0 ? c(C.green + C.bold, passed + ' passed') : c(C.green, passed + ' passed')}, ${failed > 0 ? c(C.red + C.bold, failed + ' failed') : c(C.gray, '0 failed')} ──\n`);
+
