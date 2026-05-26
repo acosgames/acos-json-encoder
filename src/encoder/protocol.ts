@@ -1,6 +1,6 @@
-import { createDefaultDict, serializeEX, deserializeEX } from "./encoder";
-import { decodeString, encodeFloat64, decodeFloat64, encodeString, isObject, readLEB128, readSLEB128, writeLEB128, writeSLEB128 } from "./helper";
-import { compileSchema } from "./schema-compiler";
+import { createDefaultDict, serializeEX, deserializeEX } from "./encoder.js";
+import { decodeString, encodeFloat64, decodeFloat64, encodeString, isObject, readLEB128, readSLEB128, writeLEB128, writeSLEB128 } from "./helper.js";
+import { compileSchema } from "./schema-compiler.js";
 
 function deepCloneNode(node: CompiledNode): CompiledNode {
     switch (node.kind) {
@@ -20,6 +20,8 @@ function deepCloneNode(node: CompiledNode): CompiledNode {
             return { kind: 'custom', node: deepCloneNode(node.node) };
         case 'enum':
             return { kind: 'enum', values: [...node.values] };
+        case 'variants':
+            return { kind: 'variants', variants: node.variants.map(v => ({ name: v.name, node: deepCloneNode(v.node) })) };
     }
 }
 
@@ -101,8 +103,12 @@ function extendNode(node: CompiledNode, overrides: Record<string, any>): void {
                 if (child.kind === 'object') {
                     extendNode(child, overrides[key]);
                 } else if (child.kind === 'static' || child.kind === 'array') {
-                    // Recurse into the element schema (e.g. players/$static/Player)
-                    extendNode(child.elementNode, overrides[key]);
+                    // Unwrap $static/$array wrapper if present (e.g. { $static: { newKey: … } })
+                    const wrapKey = child.kind === 'static' ? '$static' : '$array';
+                    const inner = (wrapKey in overrides[key]) ? overrides[key][wrapKey] : overrides[key];
+                    if (inner !== null && typeof inner === 'object' && !Array.isArray(inner)) {
+                        extendNode(child.elementNode, inner);
+                    }
                 }
             }
             // else: leaf or unrecursable — skip silently
@@ -134,6 +140,11 @@ function describeNode(node: CompiledNode): any {
         }
         case 'custom': return describeNode(node.node);
         case 'enum':   return { $enum: node.values };
+        case 'variants': {
+            const out: Record<string, any> = {};
+            for (const v of node.variants) out[v.name] = describeNode(v.node);
+            return { $variants: out };
+        }
     }
 }
 
@@ -222,6 +233,14 @@ export function encodeNode(value: any, protocol: Protocol, node: CompiledNode, b
             writeLEB128(buffer, idx >= 0 ? idx : node.values.length);
             return;
         }
+        case 'variants': {
+            const name = value?.type;
+            const vidx = name !== undefined ? node.variants.findIndex(v => v.name === name) : -1;
+            if (vidx < 0) throw new Error(`[protocol] Unknown variant type: ${name}`);
+            writeLEB128(buffer, vidx);
+            encodeNode(value.payload, protocol, node.variants[vidx].node, buffer, cache);
+            return;
+        }
     }
 }
 
@@ -278,6 +297,40 @@ function encodePrimitive(value: any, protocol: Protocol, type: PrimitiveKind, bu
 
 
 /**
+ * Encode the value of a `$deleted` extra: bitflag bytes marking which schema
+ * fields are deleted (MSB-continuation, same scheme as the object presence
+ * bitflags) followed by a LEB128 count of non-schema keys and their UTF-8
+ * string encodings.
+ */
+function encodeDeletionValue(
+    deletedKeys: string[],
+    fields: CompiledField[],
+    mapping: Record<string, number>,
+    buffer: number[],
+    protocol: Protocol,
+    cache: any
+): void {
+    const numGroups = fields.length > 0 ? Math.ceil(fields.length / 7) : 1;
+    const bitflags = new Array<number>(numGroups).fill(0);
+    const extraDelKeys: string[] = [];
+
+    for (const dk of deletedKeys) {
+        const didx = mapping[dk];
+        if (didx !== undefined) {
+            bitflags[Math.floor(didx / 7)] |= (1 << (didx % 7));
+        } else {
+            extraDelKeys.push(dk);
+        }
+    }
+
+    for (let i = 0; i < numGroups - 1; i++) bitflags[i] |= 0x80;
+    for (const bf of bitflags) buffer.push(bf);
+
+    writeLEB128(buffer, extraDelKeys.length);
+    for (const k of extraDelKeys) encodeString(k, buffer, protocol.dictionary, cache);
+}
+
+/**
  * Encode a known-field object using multi-byte bitflags.
  *
  * Each bitflag byte uses bits 0–6 to mark the presence of the next 7 fields
@@ -297,35 +350,35 @@ function encodeObject(value: any, protocol: Protocol, mapping: Record<string, nu
 
     const isObj = isObject(value);
 
-    // Collect extra keys (not defined in schema)
+    // Single pass: collect schema field presence, extras, and $deleted
     const extras: string[] = [];
+    let maxIndex = -1;
+    let deletedKeys: string[] | null = null;
     if (isObj) {
         for (const key in value) {
-            if (mapping[key] === undefined) extras.push(key);
+            const idx = mapping[key];
+            if (idx !== undefined) {
+                if (idx > maxIndex) maxIndex = idx;
+            } else if (key === '$deleted') {
+                const dk = value[key];
+                if (Array.isArray(dk) && dk.length > 0) deletedKeys = dk;
+            } else {
+                extras.push(key);
+            }
         }
     }
 
-    let maxIndex = -1;
-    for (let key in value) {
-        const idx = mapping[key];
-        if (idx !== undefined) {
-            maxIndex = Math.max(maxIndex, idx);
-        } else {
-            extras.push(key);
-        }
-    }
+    // Short-encode: only write schema groups up to the highest present field.
+    // Full-encode (all fields.length groups) is required when extras or deletions
+    // follow, so the decoder can locate the boundary between schema and extra groups.
+    const schemaGroups = (extras.length > 0 || deletedKeys)
+        ? Math.ceil(fields.length / 7)
+        : Math.max(1, Math.ceil((maxIndex + 1) / 7));
 
-    // Schema groups always cover the full field list so encoder/decoder agree on boundaries
-    const schemaGroups = Math.ceil((maxIndex + 1) / 7);
-
-    // Extra groups encode the extras count using 7 bits each (same MSB continuation scheme)
-    // let extraGroups = 0;
-    // if (extras.length > 0) {
-    //     let n = extras.length;
-    //     do { extraGroups++; n >>>= 7; } while (n > 0);
-    // }
-
-    let extraGroups = Math.ceil(extras.length / 0x7F);
+    // Extra groups use bits 0-5 for count (0-63 each), bit 6 of last group = has-deletions flag
+    const extraGroups = extras.length > 0
+        ? Math.ceil(extras.length / 63)
+        : (deletedKeys ? 1 : 0);
 
     const numGroups = schemaGroups + extraGroups;
     const bitflags = new Array<number>(numGroups).fill(0);
@@ -336,14 +389,14 @@ function encodeObject(value: any, protocol: Protocol, mapping: Record<string, nu
         }
     }
 
-    // Pack extras count into extra bitflag groups (7 bits per group)
-    let n = extras.length;
-    for (let g = 0; g < extraGroups; g++) {
-        if (g === extraGroups - 1) {
-            bitflags[schemaGroups + g] = extras.length % 0x7F;
-        } else {
-            bitflags[schemaGroups + g] = 0x7F;
+    if (extraGroups > 0) {
+        // Non-last extra groups: full count of 63
+        for (let g = 0; g < extraGroups - 1; g++) {
+            bitflags[schemaGroups + g] = 63; // bit 7 (continuation) added below
         }
+        // Last extra group: bits 0-5 = count, bit 6 = has-deletions
+        const lastGroupCount = extras.length > 0 ? extras.length - (extraGroups - 1) * 63 : 0;
+        bitflags[schemaGroups + extraGroups - 1] = lastGroupCount | (deletedKeys ? 0x40 : 0);
     }
 
     // Mark all bitflag bytes except the last with MSB=1 ("more follows")
@@ -357,10 +410,15 @@ function encodeObject(value: any, protocol: Protocol, mapping: Record<string, nu
         }
     }
 
-    // Encode extra key-value pairs after schema fields
+    // Encode regular extra key-value pairs after schema fields
     for (const key of extras) {
         encodeString(key, buffer, protocol.dictionary, cache);
         serializeEX(value[key], buffer, protocol.dictionary, cache);
+    }
+
+    // Deletion data follows extras directly — no key string needed, signalled by bit 6 above
+    if (deletedKeys) {
+        encodeDeletionValue(deletedKeys, fields, mapping, buffer, protocol, cache);
     }
 }
 
@@ -461,46 +519,46 @@ function encodeArrayOp(op: any, protocol: Protocol, elementNode: CompiledNode, b
 /**
  * Encode a $static array.
  *
- * Input shape → wire mode:
- *   Plain array (no op property on first element) → mode 4 (refresh/replace-all)
- *   Array of { op: 'set', index, value }           → mode 2 (by-index updates)
- *   Single { op: 'fill', index, count, value }     → mode 3 (fill)
+ * Wire format: [count:LEB] [(index:LEB)(value)]×count
+ *
+ * Input can be a plain array (indices 0…n-1 implied) or an array of ops:
+ *   { op: 'set',      index, value }            → single (index, value) pair
+ *   { op: 'fill',     index, count/length, value } → expanded to count pairs
+ *   { op: 'setrange', index, values }           → expanded to values.length pairs
  */
 function encodeStaticArray(value: any, protocol: Protocol, elementNode: CompiledNode, buffer: number[], cache: any = {}): void {
-    if (!Array.isArray(value)) {
-        buffer.push(4); // mode 4: empty refresh
+    if (!Array.isArray(value) || value.length === 0) {
         writeLEB128(buffer, 0);
         return;
     }
 
-    const isOps = value.length > 0 &&
-        value[0] !== null &&
-        typeof value[0] === 'object' &&
-        'op' in value[0];
+    const isOps = value[0] !== null && typeof value[0] === 'object' && 'op' in value[0];
 
     if (isOps) {
-        if (value.length === 1 && value[0].op === 'fill') {
-            // Mode 3: fill a range with a single value
-            const { index = 0, count = 1, value: fillVal } = value[0];
-            buffer.push(3);
-            writeLEB128(buffer, count);
-            writeLEB128(buffer, index);
-            encodeNode(fillVal, protocol, elementNode, buffer, cache);
-        } else {
-            // Mode 2: sparse by-index updates
-            buffer.push(2);
-            const setOps = value.filter((op: any) => op.op === 'set');
-            writeLEB128(buffer, setOps.length);
-            for (const op of setOps) {
-                writeLEB128(buffer, op.index);
-                encodeNode(op.value, protocol, elementNode, buffer, cache);
+        // Expand all ops into (index, value) pairs
+        const pairs: Array<{ index: number; value: any }> = [];
+        for (const op of value) {
+            if (op.op === 'set') {
+                pairs.push({ index: op.index, value: op.value });
+            } else if (op.op === 'fill') {
+                const n = op.count ?? op.length ?? 1;
+                for (let i = 0; i < n; i++) pairs.push({ index: (op.index ?? 0) + i, value: op.value });
+            } else if (op.op === 'setrange') {
+                for (let i = 0; i < op.values.length; i++) pairs.push({ index: op.index + i, value: op.values[i] });
             }
         }
+        writeLEB128(buffer, pairs.length);
+        for (const { index, value: v } of pairs) {
+            writeLEB128(buffer, index);
+            encodeNode(v, protocol, elementNode, buffer, cache);
+        }
     } else {
-        // Mode 4: full refresh
-        buffer.push(4);
+        // Plain array: encode all elements with 0-based indices
         writeLEB128(buffer, value.length);
-        for (const item of value) encodeNode(item, protocol, elementNode, buffer, cache);
+        for (let i = 0; i < value.length; i++) {
+            writeLEB128(buffer, i);
+            encodeNode(value[i], protocol, elementNode, buffer, cache);
+        }
     }
 }
 
@@ -557,6 +615,12 @@ export function decodeNode(ref: DecodeRef, protocol: Protocol, node: CompiledNod
             const idx = readLEB128(ref);
             return idx < node.values.length ? node.values[idx] : undefined;
         }
+        case 'variants': {
+            const vidx = readLEB128(ref);
+            if (vidx >= node.variants.length) throw new Error(`[protocol] Unknown variant index: ${vidx}`);
+            const payload = decodeNode(ref, protocol, node.variants[vidx].node);
+            return { type: node.variants[vidx].name, payload };
+        }
     }
 }
 
@@ -609,19 +673,43 @@ function decodeObject(ref: DecodeRef, protocol: Protocol, fields: CompiledField[
         }
     }
 
-    // Extra key-value pairs: bitflag groups beyond the schema groups encode the count
-    const schemaGroups = Math.ceil(fields.length / 7);
-    if (bitflags.length > schemaGroups) {
-        let extrasCount = 0;
-        for (let g = schemaGroups; g < bitflags.length; g++) {
-            extrasCount += bitflags[g] & 0x7F;
+    // Extra groups: bits 0-5 = count per group (0-63), bit 6 of last = has-deletions.
+    // The encoder may send fewer schema groups than ceil(fields.length/7) when there
+    // are no extras or deletions, so use min() to find the actual boundary.
+    const schemaGroupsFull = Math.ceil(fields.length / 7);
+    const actualSchemaGroups = Math.min(bitflags.length, schemaGroupsFull);
+    const extraGroupCount = bitflags.length - actualSchemaGroups;
+    let hasDeletions = false;
+    let extrasCount = 0;
+    if (extraGroupCount > 0) {
+        extrasCount = (extraGroupCount - 1) * 63; // non-last groups each hold 63
+        const lastExtraBits = bitflags[actualSchemaGroups + extraGroupCount - 1];
+        extrasCount += lastExtraBits & 0x3F;  // bits 0-5
+        hasDeletions = (lastExtraBits & 0x40) !== 0;  // bit 6
+    }
+    for (let i = 0; i < extrasCount; i++) {
+        const key = decodeString(ref);
+        const exRef = { buffer: ref.view, pos: ref.pos, dict: ref.dictionary };
+        result[key] = deserializeEX(exRef);
+        ref.pos = exRef.pos;
+    }
+    if (hasDeletions) {
+        // Read deletion bitflags (MSB-continuation) → schema field names
+        const deleted: string[] = [];
+        const bits: number[] = [];
+        while (true) {
+            const bf = ref.view.getUint8(ref.pos++);
+            bits.push(bf & 0x7F);
+            if (!(bf & 0x80)) break;
         }
-        for (let i = 0; i < extrasCount; i++) {
-            const key = decodeString(ref);
-            const exRef = { buffer: ref.view, pos: ref.pos, dict: ref.dictionary };
-            result[key] = deserializeEX(exRef);
-            ref.pos = exRef.pos;
+        for (let b = 0; b < fields.length; b++) {
+            const g = Math.floor(b / 7);
+            if (g < bits.length && (bits[g] & (1 << (b % 7)))) deleted.push(fields[b].key);
         }
+        // Non-schema keys follow as LEB128 count + UTF-8 strings
+        const extraDelCount = readLEB128(ref);
+        for (let j = 0; j < extraDelCount; j++) deleted.push(decodeString(ref));
+        result['$deleted'] = deleted;
     }
 
     return result;
@@ -695,40 +783,350 @@ function decodeArrayOp(ref: DecodeRef, protocol: Protocol, elementNode: Compiled
 }
 
 /**
- * Decode a $static array.  Reads the mode byte then dispatches accordingly.
+ * Decode a $static array.
  *
- * Returns:
- *   mode 2 → [ { op:'set', index, value }, … ]
- *   mode 3 → [ { op:'fill', index, count, value } ]
- *   mode 4 → plain array (full snapshot)
+ * Wire format: [count:LEB] [(index:LEB)(value)]×count
+ * Always returns an array of { op:'set', index, value } update ops.
  */
 function decodeStaticArray(ref: DecodeRef, protocol: Protocol, elementNode: CompiledNode): any {
-    const mode = ref.view.getUint8(ref.pos++);
-
-    switch (mode) {
-        case 2: {
-            const count = readLEB128(ref);
-            const result: any[] = [];
-            for (let i = 0; i < count; i++) {
-                const index = readLEB128(ref);
-                const value = decodeNode(ref, protocol, elementNode);
-                result.push({ op: 'set', index, value });
-            }
-            return result;
-        }
-        case 3: {
-            const count = readLEB128(ref);
-            const index = readLEB128(ref);
-            const value = decodeNode(ref, protocol, elementNode);
-            return [{ op: 'fill', index, count, value }];
-        }
-        case 4: {
-            const count = readLEB128(ref);
-            const result: any[] = [];
-            for (let i = 0; i < count; i++) result.push(decodeNode(ref, protocol, elementNode));
-            return result;
-        }
-        default:
-            throw new Error(`[protocol-withtypes] Unknown $static mode: ${mode}`);
+    const count = readLEB128(ref);
+    const result: any[] = [];
+    for (let i = 0; i < count; i++) {
+        const index = readLEB128(ref);
+        const value = decodeNode(ref, protocol, elementNode);
+        result.push({ op: 'set', index, value });
     }
+    return result;
+}
+
+// ─── Debug / Profiling ────────────────────────────────────────────────────────
+// Zero overhead in production: none of these functions are referenced from any
+// production encode path.  Call protoEncodeDebug to get a byte-level report.
+
+export interface ProfileEntry {
+    key: string;
+    bytes: number;
+    children?: ProfileEntry[];
+}
+
+/** Follow the custom-node chain to the underlying structural node. */
+function dbgResolve(node: CompiledNode): CompiledNode {
+    while (node.kind === 'custom') node = node.node;
+    return node;
+}
+
+function dbgEncodeNode(
+    value: any, protocol: Protocol, node: CompiledNode,
+    buffer: number[], cache: any, profile: ProfileEntry[]
+): void {
+    const resolved = dbgResolve(node);
+    switch (resolved.kind) {
+        case 'object':   return dbgEncodeObject(value, protocol, resolved, buffer, cache, profile);
+        case 'array':    return dbgEncodeArray(value, protocol, resolved.elementNode, buffer, cache, profile);
+        case 'static':   return dbgEncodeStaticArray(value, protocol, resolved.elementNode, buffer, cache, profile);
+        case 'map':      return dbgEncodeMap(value, protocol, resolved, buffer, cache, profile);
+        case 'variants': return dbgEncodeVariants(value, protocol, resolved, buffer, cache, profile);
+        default:
+            // Primitive, enum, any: use production encoder.
+            encodeNode(value, protocol, node, buffer, cache);
+    }
+}
+
+function dbgEncodeObject(
+    value: any, protocol: Protocol,
+    node: CompiledNode & { kind: 'object' },
+    buffer: number[], cache: any, profile: ProfileEntry[]
+): void {
+    const { mapping, fields } = node;
+    if (fields.length === 0) {
+        const before = buffer.length;
+        serializeEX(value, buffer, protocol.dictionary, cache);
+        profile.push({ key: '<generic>', bytes: buffer.length - before });
+        return;
+    }
+
+    const isObj = isObject(value);
+
+    // ── Replicate encodeObject header logic (must match production exactly) ──
+    const extras: string[] = [];
+    let maxIndex = -1;
+    let deletedKeys: string[] | null = null;
+    if (isObj) {
+        for (const key in value) {
+            const idx = mapping[key];
+            if (idx !== undefined) {
+                if (idx > maxIndex) maxIndex = idx;
+            } else if (key === '$deleted') {
+                const dk = value[key];
+                if (Array.isArray(dk) && dk.length > 0) deletedKeys = dk;
+            } else {
+                extras.push(key);
+            }
+        }
+    }
+
+    const schemaGroups = (extras.length > 0 || deletedKeys)
+        ? Math.ceil(fields.length / 7)
+        : Math.max(1, Math.ceil((maxIndex + 1) / 7));
+
+    const extraGroups = extras.length > 0
+        ? Math.ceil(extras.length / 63)
+        : (deletedKeys ? 1 : 0);
+
+    const numGroups = schemaGroups + extraGroups;
+    const bitflags = new Array<number>(numGroups).fill(0);
+
+    for (let i = 0; i < fields.length; i++) {
+        if (isObj && fields[i].key in value) {
+            bitflags[Math.floor(i / 7)] |= (1 << (i % 7));
+        }
+    }
+
+    if (extraGroups > 0) {
+        for (let g = 0; g < extraGroups - 1; g++) {
+            bitflags[schemaGroups + g] = 63;
+        }
+        const lastGroupCount = extras.length > 0 ? extras.length - (extraGroups - 1) * 63 : 0;
+        bitflags[schemaGroups + extraGroups - 1] = lastGroupCount | (deletedKeys ? 0x40 : 0);
+    }
+
+    for (let i = 0; i < numGroups - 1; i++) bitflags[i] |= 0x80;
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Header bytes (bitflags)
+    const headerStart = buffer.length;
+    for (const bf of bitflags) buffer.push(bf);
+    profile.push({ key: '<header>', bytes: buffer.length - headerStart });
+
+    // Per-field bytes
+    for (let i = 0; i < fields.length; i++) {
+        if (isObj && fields[i].key in value) {
+            const before = buffer.length;
+            const childProfile: ProfileEntry[] = [];
+            dbgEncodeNode(value[fields[i].key], protocol, fields[i].node, buffer, cache, childProfile);
+            profile.push({
+                key: fields[i].key,
+                bytes: buffer.length - before,
+                children: childProfile.length > 0 ? childProfile : undefined,
+            });
+        }
+    }
+
+    // Extras bytes
+    if (extras.length > 0) {
+        const extrasStart = buffer.length;
+        for (const key of extras) {
+            encodeString(key, buffer, protocol.dictionary, cache);
+            serializeEX(value[key], buffer, protocol.dictionary, cache);
+        }
+        profile.push({ key: '<extras>', bytes: buffer.length - extrasStart });
+    }
+
+    // Deletion bytes
+    if (deletedKeys) {
+        const delStart = buffer.length;
+        encodeDeletionValue(deletedKeys, fields, mapping, buffer, protocol, cache);
+        profile.push({ key: '<$deleted>', bytes: buffer.length - delStart });
+    }
+}
+
+function dbgEncodeArray(
+    value: any, protocol: Protocol, elementNode: CompiledNode,
+    buffer: number[], cache: any, profile: ProfileEntry[]
+): void {
+    if (!Array.isArray(value)) {
+        const s = buffer.length;
+        buffer.push(0); writeLEB128(buffer, 0);
+        profile.push({ key: '<header>', bytes: buffer.length - s });
+        return;
+    }
+
+    const isDelta = value.length > 0 &&
+        value[0] !== null && typeof value[0] === 'object' && 'op' in value[0];
+
+    const headerStart = buffer.length;
+    if (isDelta) {
+        buffer.push(1);
+        writeLEB128(buffer, value.length);
+        profile.push({ key: '<header>', bytes: buffer.length - headerStart });
+        for (let i = 0; i < value.length; i++) {
+            const op = value[i];
+            const before = buffer.length;
+            const children: ProfileEntry[] = [];
+            switch (op.op) {
+                case 'resize':
+                    buffer.push(AROP_RESIZE); writeLEB128(buffer, op.value);
+                    break;
+                case 'set':
+                    buffer.push(AROP_SET); writeLEB128(buffer, op.index);
+                    dbgEncodeNode(op.value, protocol, elementNode, buffer, cache, children);
+                    break;
+                case 'setrange': {
+                    buffer.push(AROP_SETRANGE); writeLEB128(buffer, op.index); writeLEB128(buffer, op.values.length);
+                    for (let j = 0; j < op.values.length; j++) {
+                        const cb = buffer.length; const cc: ProfileEntry[] = [];
+                        dbgEncodeNode(op.values[j], protocol, elementNode, buffer, cache, cc);
+                        children.push({ key: `[${j}]`, bytes: buffer.length - cb, children: cc.length ? cc : undefined });
+                    }
+                    break;
+                }
+                case 'fill':
+                    buffer.push(AROP_FILL); writeLEB128(buffer, op.index); writeLEB128(buffer, op.count ?? op.length ?? 1);
+                    dbgEncodeNode(op.value, protocol, elementNode, buffer, cache, children);
+                    break;
+                case 'replace': {
+                    buffer.push(AROP_REPLACE); writeLEB128(buffer, op.values.length);
+                    for (let j = 0; j < op.values.length; j++) {
+                        const cb = buffer.length; const cc: ProfileEntry[] = [];
+                        dbgEncodeNode(op.values[j], protocol, elementNode, buffer, cache, cc);
+                        children.push({ key: `[${j}]`, bytes: buffer.length - cb, children: cc.length ? cc : undefined });
+                    }
+                    break;
+                }
+            }
+            profile.push({ key: `[${i}] ${op.op}`, bytes: buffer.length - before,
+                children: children.length ? children : undefined });
+        }
+    } else {
+        buffer.push(0);
+        writeLEB128(buffer, value.length);
+        profile.push({ key: '<header>', bytes: buffer.length - headerStart });
+        for (let i = 0; i < value.length; i++) {
+            const before = buffer.length;
+            const children: ProfileEntry[] = [];
+            dbgEncodeNode(value[i], protocol, elementNode, buffer, cache, children);
+            profile.push({ key: `[${i}]`, bytes: buffer.length - before,
+                children: children.length ? children : undefined });
+        }
+    }
+}
+
+function dbgEncodeStaticArray(
+    value: any, protocol: Protocol, elementNode: CompiledNode,
+    buffer: number[], cache: any, profile: ProfileEntry[]
+): void {
+    if (!Array.isArray(value) || value.length === 0) {
+        const s = buffer.length;
+        writeLEB128(buffer, 0);
+        profile.push({ key: '<header>', bytes: buffer.length - s });
+        return;
+    }
+
+    const isOps = value[0] !== null && typeof value[0] === 'object' && 'op' in value[0];
+
+    if (isOps) {
+        const pairs: Array<{ index: number; value: any }> = [];
+        for (const op of value) {
+            if (op.op === 'set') {
+                pairs.push({ index: op.index, value: op.value });
+            } else if (op.op === 'fill') {
+                const n = op.count ?? op.length ?? 1;
+                for (let i = 0; i < n; i++) pairs.push({ index: (op.index ?? 0) + i, value: op.value });
+            } else if (op.op === 'setrange') {
+                for (let i = 0; i < op.values.length; i++) pairs.push({ index: op.index + i, value: op.values[i] });
+            }
+        }
+        const headerStart = buffer.length;
+        writeLEB128(buffer, pairs.length);
+        profile.push({ key: '<header>', bytes: buffer.length - headerStart });
+        for (const { index, value: v } of pairs) {
+            const before = buffer.length;
+            writeLEB128(buffer, index);
+            const children: ProfileEntry[] = [];
+            dbgEncodeNode(v, protocol, elementNode, buffer, cache, children);
+            profile.push({ key: `[${index}]`, bytes: buffer.length - before,
+                children: children.length ? children : undefined });
+        }
+    } else {
+        const headerStart = buffer.length;
+        writeLEB128(buffer, value.length);
+        profile.push({ key: '<header>', bytes: buffer.length - headerStart });
+        for (let i = 0; i < value.length; i++) {
+            const before = buffer.length;
+            writeLEB128(buffer, i);
+            const children: ProfileEntry[] = [];
+            dbgEncodeNode(value[i], protocol, elementNode, buffer, cache, children);
+            profile.push({ key: `[${i}]`, bytes: buffer.length - before,
+                children: children.length ? children : undefined });
+        }
+    }
+}
+
+function dbgEncodeMap(
+    value: any, protocol: Protocol,
+    mapNode: CompiledNode & { kind: 'map' },
+    buffer: number[], cache: any, profile: ProfileEntry[]
+): void {
+    if (!value || typeof value !== 'object') {
+        const s = buffer.length;
+        writeLEB128(buffer, 0);
+        profile.push({ key: '<header>', bytes: buffer.length - s });
+        return;
+    }
+    const keys = Object.keys(value);
+    const headerStart = buffer.length;
+    writeLEB128(buffer, keys.length);
+    profile.push({ key: '<header>', bytes: buffer.length - headerStart });
+    const valueNode: CompiledNode = { kind: 'object', mapping: mapNode.mapping, fields: mapNode.fields };
+    for (const key of keys) {
+        const before = buffer.length;
+        encodeString(key, buffer, protocol.dictionary, cache);
+        const children: ProfileEntry[] = [];
+        dbgEncodeNode(value[key], protocol, valueNode, buffer, cache, children);
+        profile.push({ key, bytes: buffer.length - before,
+            children: children.length ? children : undefined });
+    }
+}
+
+function dbgEncodeVariants(
+    value: any, protocol: Protocol,
+    node: CompiledNode & { kind: 'variants' },
+    buffer: number[], cache: any, profile: ProfileEntry[]
+): void {
+    const name = value?.type;
+    const idx = name !== undefined ? node.variants.findIndex(v => v.name === name) : -1;
+    if (idx < 0) throw new Error(`[protocol] Unknown variant type: ${name}`);
+    const typeStart = buffer.length;
+    writeLEB128(buffer, idx);
+    profile.push({ key: '<type>', bytes: buffer.length - typeStart });
+    const payloadStart = buffer.length;
+    const children: ProfileEntry[] = [];
+    dbgEncodeNode(value.payload, protocol, node.variants[idx].node, buffer, cache, children);
+    profile.push({ key: 'payload', bytes: buffer.length - payloadStart,
+        children: children.length ? children : undefined });
+}
+
+function formatProfile(entries: ProfileEntry[], indent = 0): string {
+    const pad = '  '.repeat(indent);
+    return entries
+        .map(e => {
+            const line = `${pad}${e.key}: ${e.bytes}B`;
+            return e.children?.length ? line + '\n' + formatProfile(e.children, indent + 1) : line;
+        })
+        .join('\n');
+}
+
+/**
+ * Encode a protocol payload and return both the wire buffer and a byte-cost
+ * report tree.  Intended for development/profiling only — never referenced
+ * from the production encode path, so it has zero runtime overhead when not
+ * called.
+ */
+export function protoEncodeDebug(payload: any): { buffer: ArrayBuffer; report: string } {
+    const protocol = getProtocol(payload?.type);
+    const buffer: number[] = [protocol.index];
+    const profile: ProfileEntry[] = [];
+
+    if (protocol.index === 0) {
+        const fallbackDict = registeredProtocols[0].dictionary
+            ?? (() => { const d = createDefaultDict([]); d.frozen = true; return d; })();
+        serializeEX(payload, buffer, fallbackDict, {});
+        return { buffer: new Uint8Array(buffer).buffer, report: `<fallback> ${buffer.length}B` };
+    }
+
+    dbgEncodeNode(payload.payload, protocol, protocol.schema, buffer, {}, profile);
+    return {
+        buffer: new Uint8Array(buffer).buffer,
+        report: `total: ${buffer.length}B\n` + formatProfile(profile),
+    };
 }

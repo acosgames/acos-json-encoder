@@ -29,6 +29,17 @@ export function compileSchema(schema: any): CompiledNode {
         return { kind: 'primitive', type: 'object' };
     }
 
+    if ('$variants' in schema) {
+        const defs = schema['$variants'] as Record<string, any>;
+        return {
+            kind: 'variants',
+            variants: Object.entries(defs).map(([name, def]) => ({
+                name,
+                node: compileSchema(def),
+            })),
+        };
+    }
+
     if ('$map' in schema) {
         const inner = schema['$map'];
         // const valueNode: CompiledNode = (inner && Object.keys(inner).length > 0)

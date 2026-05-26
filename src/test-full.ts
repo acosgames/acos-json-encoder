@@ -311,12 +311,22 @@ registerProtocol({
     }
 }, DICT);
 
-test('$static refresh (mode 4)', () => {
+test('$static full-indexed update', () => {
+    // $static always encodes/decodes as (index, value) pairs — use set-ops form
     const msg = {
         type: 'p_static',
         payload: {
-            cells: ['X', '', 'O', '', 'X', '', 'O', '', ''],
-            players: [{ id: 1, name: 'Alice', score: 10 }, { id: 2, name: 'Bob', score: 7 }]
+            cells:   [
+                { op: 'set', index: 0, value: 'X' }, { op: 'set', index: 1, value: '' },
+                { op: 'set', index: 2, value: 'O' }, { op: 'set', index: 3, value: '' },
+                { op: 'set', index: 4, value: 'X' }, { op: 'set', index: 5, value: '' },
+                { op: 'set', index: 6, value: 'O' }, { op: 'set', index: 7, value: '' },
+                { op: 'set', index: 8, value: '' },
+            ],
+            players: [
+                { op: 'set', index: 0, value: { id: 1, name: 'Alice', score: 10 } },
+                { op: 'set', index: 1, value: { id: 2, name: 'Bob',   score: 7  } },
+            ]
         }
     };
     assertEqual(protoDecode(protoEncode(msg)), msg);
@@ -333,7 +343,8 @@ test('$static set ops (mode 2)', () => {
     assertEqual(protoDecode(protoEncode(msg)), msg);
 });
 
-test('$static fill op (mode 3)', () => {
+test('$static fill op expands to indexed pairs', () => {
+    // fill op is expanded on encode; decode always returns individual set ops
     const msg = {
         type: 'p_static',
         payload: {
@@ -341,7 +352,12 @@ test('$static fill op (mode 3)', () => {
             players: []
         }
     };
-    assertEqual(protoDecode(protoEncode(msg)), msg);
+    const decoded = protoDecode(protoEncode(msg));
+    assert(Array.isArray(decoded.payload.cells), 'cells is array');
+    assert(decoded.payload.cells.length === 9, 'fill expanded to 9 pairs');
+    assert(decoded.payload.cells[0].op === 'set' && decoded.payload.cells[0].index === 0, 'first is set index 0');
+    assert(decoded.payload.cells[8].op === 'set' && decoded.payload.cells[8].index === 8, 'last is set index 8');
+    assert(decoded.payload.cells.every((s: any) => s.value === ''), 'all values are empty string');
 });
 
 // ─── Section: Protocol — $map ─────────────────────────────────────────────────
@@ -405,7 +421,11 @@ test('$enum unknown value → undefined on decode', () => {
 });
 
 test('$static of $enum', () => {
-    const msg = { type: 'p_enum', payload: { board: ['X', '', 'O', 'X', 'X', 'O', 'O', '', ''] } };
+    const board = ['X', '', 'O', 'X', 'X', 'O', 'O', '', ''];
+    const msg = {
+        type: 'p_enum',
+        payload: { board: board.map((v, i) => ({ op: 'set', index: i, value: v })) }
+    };
     assertEqual(protoDecode(protoEncode(msg)), msg);
 });
 
@@ -472,10 +492,11 @@ registerExtension('p_ext', 'poker', {
 applyExtension('p_ext', 'chess');
 
 test('extension: $slot state encodes/decodes', () => {
+    const cells = ['X', 'O', 'X', 'O', 'X', '', 'O', '', ''];
     const msg = {
         type: 'p_ext',
         payload: {
-            state: { cells: ['X', 'O', 'X', 'O', 'X', '', 'O', '', ''] },
+            state: { cells: cells.map((v, i) => ({ op: 'set', index: i, value: v })) },
         }
     };
     assertEqual(protoDecode(protoEncode(msg)), msg);
@@ -491,8 +512,8 @@ test('extension: nested $slot in $static extended', () => {
         type: 'p_ext',
         payload: {
             players: [
-                { id: 1, score: 100, attr: { level: 5, tag: 'pro' } },
-                { id: 2, score: 80,  attr: { level: 3, tag: 'mid' } },
+                { op: 'set', index: 0, value: { id: 1, score: 100, attr: { level: 5, tag: 'pro' } } },
+                { op: 'set', index: 1, value: { id: 2, score: 80,  attr: { level: 3, tag: 'mid' } } },
             ]
         }
     };
@@ -532,7 +553,10 @@ test('extension: $enum extended values encode/decode 2', () => {
 applyExtension('p_ext', 'poker');
 
 test('extension: switch to poker extension', () => {
-    const msg = { type: 'p_ext', payload: { newkey: 42, state: { deck: ['Ace', 'King'] } } };
+    const msg = { type: 'p_ext', payload: { newkey: 42, state: { deck: [
+        { op: 'set', index: 0, value: 'Ace' },
+        { op: 'set', index: 1, value: 'King' },
+    ] } } };
     assertEqual(protoDecode(protoEncode(msg)), msg);
 });
 
@@ -562,7 +586,8 @@ test('extension: schema after disable shows $slot default', () => {
 
 applyExtension('p_ext', 'chess');
 test('extension: re-apply after disable works', () => {
-    const msg = { type: 'p_ext', payload: { state: { cells: ['X', '', 'O'] } } };
+    const cells = ['X', '', 'O'];
+    const msg = { type: 'p_ext', payload: { state: { cells: cells.map((v, i) => ({ op: 'set', index: i, value: v })) } } };
     assertEqual(protoDecode(protoEncode(msg)), msg);
 });
 disableExtension('p_ext');
@@ -583,6 +608,38 @@ test('extra keys round-trip', () => {
 
 test('only extras present', () => {
     const msg = { type: 'p_extras', payload: { id: 5, foo: 'bar' } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+test('$deleted single schema field encodes as bitflag, decodes to key array', () => {
+    // p_extras schema: { id (idx 0), name (idx 1) }
+    const msg = { type: 'p_extras', payload: { id: 5, $deleted: ['name'] } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+test('$deleted multiple schema fields round-trip', () => {
+    const msg = { type: 'p_extras', payload: { $deleted: ['id', 'name'] } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+test('$deleted non-schema key is string-serialized and round-trips', () => {
+    const msg = { type: 'p_extras', payload: { id: 3, $deleted: ['someExtraKey'] } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+test('$deleted mixed schema and non-schema keys round-trip', () => {
+    const msg = { type: 'p_extras', payload: { id: 3, $deleted: ['name', 'someExtraKey'] } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+test('$deleted combined with schema fields and extras', () => {
+    const msg = { type: 'p_extras', payload: { id: 3, extra1: 'x', $deleted: ['name'] } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+test('$deleted in nested object field round-trip', () => {
+    // p_object schema: meta: { title (idx 0), count (idx 1) }
+    const msg = { type: 'p_object', payload: { meta: { title: 'test', $deleted: ['count'] } } };
     assertEqual(protoDecode(protoEncode(msg)), msg);
 });
 
@@ -724,17 +781,18 @@ test('object delta: nested array changes round-trip', () => {
     assertEqual(result, to);
 });
 
-test('object delta: new array key uses array ops', () => {
+test('object delta: new array key gives plain array', () => {
     const from: any = { score: 5 };
     const to: any   = { score: 5, cells: ['X', 'X', 'X', 'O', 'O'] };
     const d = delta(from, to);
     assert(Array.isArray(d['cells']), 'cells delta should be an array');
-    assert(d['cells'][0]?.op !== undefined, 'cells delta should contain ops');
+    assert(d['cells'][0]?.op === undefined, 'cells delta should be a plain array, not ops');
+    assertEqual(d['cells'], ['X', 'X', 'X', 'O', 'O']);
     const result = merge(from, d);
     assertEqual(result, to);
 });
 
-test('object delta: new array key with fill op creates key on merge', () => {
+test('object delta: new array key on nested object gives plain array', () => {
     const from: any = {
     "room": {
         "_teams": {
@@ -911,8 +969,9 @@ test('object delta: new array key with fill op creates key on merge', () => {
     "timeend": null
 };
     const d = delta(from, to);
-    console.log('Delta for new array key with fill op:', JSON.stringify(d));
-    assert(d['state']['cells'][0]?.op === 'fill', 'all-same array should produce fill op');
+    console.log('Delta for new array key:', JSON.stringify(d));
+    assert(Array.isArray(d['state']['cells']), 'cells should be an array');
+    assert(d['state']['cells'][0]?.op === 'fill', 'all-same new array key should produce fill op');
     const result = merge(from, d);
     assertEqual(result, to);
 });
@@ -997,15 +1056,108 @@ test('encode set ops for $static players', () => {
 });
 
 test('full board refresh in protocol', () => {
+    // $static always decodes as set ops — use set-ops form for round-trip
+    const board = ['X', 'O', 'X', 'O', 'X', 'O', 'X', 'O', 'X'];
     const msg = {
         type: 'p_delta_int',
         payload: {
             seq: 3,
-            board: ['X', 'O', 'X', 'O', 'X', 'O', 'X', 'O', 'X'],
-            players: [{ id: 1, score: 3 }, { id: 2, score: 2 }]
+            board: board.map((v, i) => ({ op: 'set', index: i, value: v })),
+            players: [
+                { op: 'set', index: 0, value: { id: 1, score: 3 } },
+                { op: 'set', index: 1, value: { id: 2, score: 2 } },
+            ],
         }
     };
     assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+// ─── Section: $variants ───────────────────────────────────────────────────────
+
+console.log(`${C.cyan}${C.bold}\n── $variants ──${C.reset}`);
+
+registerProtocol({
+    type: 'p_actions',
+    payload: {
+        seq: 'uint',
+        action: {
+            $variants: {
+                gamestart: { numPlayers: 'uint', mode: 'string' },
+                pick:      { cardIndex: 'uint' },
+                move:      { from: 'uint', to: 'uint' },
+            }
+        }
+    }
+}, DICT);
+
+test('$variants: encode/decode gamestart', () => {
+    const msg = { type: 'p_actions', payload: { seq: 1, action: { type: 'gamestart', payload: { numPlayers: 4, mode: 'ranked' } } } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+test('$variants: encode/decode pick', () => {
+    const msg = { type: 'p_actions', payload: { seq: 2, action: { type: 'pick', payload: { cardIndex: 3 } } } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+test('$variants: encode/decode move', () => {
+    const msg = { type: 'p_actions', payload: { seq: 3, action: { type: 'move', payload: { from: 0, to: 7 } } } };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+test('$variants: different variants write different byte counts', () => {
+    const msgA = { type: 'p_actions', payload: { seq: 1, action: { type: 'pick', payload: { cardIndex: 0 } } } };
+    const msgB = { type: 'p_actions', payload: { seq: 1, action: { type: 'gamestart', payload: { numPlayers: 2, mode: 'casual' } } } };
+    const bytesA = protoEncode(msgA).byteLength;
+    const bytesB = protoEncode(msgB).byteLength;
+    assert(bytesB > bytesA, `gamestart (${bytesB}B) should be larger than pick (${bytesA}B)`);
+});
+
+// ─── Section: extensible $static object fields ────────────────────────────────
+
+console.log(`${C.cyan}${C.bold}\n── Extensible $static fields ──${C.reset}`);
+
+registerProtocol({
+    type: 'p_ext_static',
+    payload: {
+        players: { $static: { id: 'uint', name: 'string' } }
+    }
+}, DICT);
+registerExtension('p_ext_static', 'chess', {
+    players: { $static: { rating: 'uint', title: 'string' } }
+});
+
+test('extensible $static: base schema round-trips', () => {
+    const msg = {
+        type: 'p_ext_static',
+        payload: {
+            players: [{ op: 'set', index: 0, value: { id: 1, name: 'Alice' } }]
+        }
+    };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+});
+
+test('extensible $static: extension adds fields to element schema', () => {
+    applyExtension('p_ext_static', 'chess');
+    const msg = {
+        type: 'p_ext_static',
+        payload: {
+            players: [{ op: 'set', index: 0, value: { id: 2, name: 'Bob', rating: 1500, title: 'FM' } }]
+        }
+    };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+    disableExtension('p_ext_static');
+});
+
+test('extensible $static: after disabling extension, extended fields are gone', () => {
+    const msg = {
+        type: 'p_ext_static',
+        payload: {
+            players: [{ op: 'set', index: 0, value: { id: 1, name: 'Alice' } }]
+        }
+    };
+    assertEqual(protoDecode(protoEncode(msg)), msg);
+    assert(getProtocolSchema('p_ext_static')?.players?.$static?.rating === undefined, 'rating removed after disable');
 });
 
 // ─── Results ─────────────────────────────────────────────────────────────────

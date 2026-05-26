@@ -1052,9 +1052,9 @@ function deserializeObj(json: any, ref: { buffer: any; pos: number; dict: any })
             let isArrDelta = ref.buffer.getUint8(ref.pos) == TYPE_ARR_DELTA;
             let value = deserializeEX(ref);
 
-            if (isArrDelta) {
-                key = "#" + key;
-            }
+            // if (isArrDelta) {
+            //     key = "#" + key;
+            // }
 
             json[key] = value;
 
@@ -1072,9 +1072,9 @@ function deserializeObj(json: any, ref: { buffer: any; pos: number; dict: any })
             let isArrDelta = ref.buffer.getUint8(ref.pos) == TYPE_ARR_DELTA;
             let value = deserializeEX(ref);
 
-            if (isArrDelta) {
-                key = "#" + key;
-            }
+        //    if (isArrDelta) {
+        //         key = "#" + key;
+        //     } 
 
             json[key] = value;
             continue;
@@ -1094,9 +1094,9 @@ function deserializeObj(json: any, ref: { buffer: any; pos: number; dict: any })
             let isArrDelta = ref.buffer.getUint8(ref.pos) == TYPE_ARR_DELTA;
             let value = deserializeEX(ref);
 
-            if (isArrDelta) {
-                key = "#" + key;
-            }
+            // if (isArrDelta) {
+            //     key = "#" + key;
+            // }
             json[key] = value;
             continue;
         }

@@ -17,57 +17,25 @@
  * 
  */
 
-
-const Player = {
-    "id": "uint",
-    "displayname": "string",
-    "shortid": "string",
-    "portraitid": "uint",
-    "countrycode": "string",
-    "rating": "uint",
-    "teamid": "uint",
-    "stats": {
-        "$map": {}
-    },
-    "items": {
-        "$map": {}
-    },
-    "attr": {
-        "$slot": 'any'
-    },
-    "rank": "uint",
-    "score": "uint",
-}
-
-const Team = {
-    "team_slug": "string",
-    "name": "string",
-    "color": "string",
-    "order": "uint",
-    "players": {
-        "$static": "uint"
-    },
-    "rank": "uint",
-    "score": "uint",
-    "attr": {
-        "$slot": {}
-    }
-}
-
 const PROTOCOL = {
     "type": "gameupdate",
+    "room_slug": "string",
     "payload": {
         "room": {
             "events": {
                 "$array": {
-                    "type": "uint",
-                    "payload": "object"
+                    "type": {"$enum": ["join", "newround", "gamestart", "pick", "gameover", "error"]},
+                    "payload": {
+                        "$slot": "any"
+                    }
                 }
             },
             "timeend": "uint",
             "timesec": "uint",
             "updated": "uint",
-            "next_action": "uint",
+            "next_action": {
+                "$enum": ["pick", "move", "select"]
+            },
             "next_player": "uint",
             "next_team": "uint",
             "starttime": "uint",
@@ -78,19 +46,56 @@ const PROTOCOL = {
                 "room_slug": "string",
                 "isreplay": "uint",
                 "players": "uint",
-                "teams": "uint",
+                "teams": "uint"
             }
         },
         "teams": {
-            "$static": Team,
+            "$static": {
+                "team_slug": "string",
+                "name": "string",
+                "color": "string",
+                "order": "uint",
+                "players": {
+                    "$static": "uint"
+                },
+                "rank": "uint",
+                "score": "uint",
+                "attr": {
+                    "$slot": {}
+                }
+            }
         },
         "players": {
-            "$static": Player
+            "$static": {
+                "id": "uint",
+                "displayname": "string",
+                "shortid": "string",
+                "portraitid": "uint",
+                "countrycode": "string",
+                "rating": "uint",
+                "teamid": "uint",
+                "stats": {
+                    "$map": {
+                        "value": "uint"
+                    }
+                },
+                "items": {
+                    "$map": {
+                        "name": "uint",
+                        "balance": "uint"
+                    }
+                },
+                "attr": {
+                    "$slot": "any"
+                },
+                "rank": "uint",
+                "score": "uint"
+            }
         },
         "state": {
-            "$slot": 'any'
+            "$slot": "any"
         }
-    },
+    }
 }
 
 export default PROTOCOL;

@@ -19,7 +19,7 @@ interface ProtocolSchema {
 type Resize    = { op: 'resize';   value: number };
 type SetElem   = { op: 'set';      index: number; value: any };
 type SetRange  = { op: 'setrange'; index: number; values: any[] };
-type Fill      = { op: 'fill';     index: number; length: number; value: any };
+type Fill      = { op: 'fill';     index: number; count: number; value: any };
 type Replace   = { op: 'replace';  values: any[] };
 type ArrayChange = Resize | SetElem | SetRange | Fill | Replace;
 
@@ -58,6 +58,7 @@ interface CompiledField {
 interface CompiledFieldMap {
     [key: string]: number;
 }
+type CompiledVariant = { name: string; node: CompiledNode };
 type CompiledNode =
     | { kind: 'any'; type: 'any' }
     | { kind: 'primitive'; type: PrimitiveKind }
@@ -66,7 +67,8 @@ type CompiledNode =
     | { kind: 'array';     elementNode: CompiledNode }
     | { kind: 'static';    elementNode: CompiledNode }
     | { kind: 'custom';    node: CompiledNode }
-    | { kind: 'enum';      values: (string | number)[] };
+    | { kind: 'enum';      values: (string | number)[] }
+    | { kind: 'variants';  variants: CompiledVariant[] };
 
 
 interface ProtocolNode {

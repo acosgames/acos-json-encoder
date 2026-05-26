@@ -1,7 +1,8 @@
-import { registerExtension, applyExtension, getProtocolSchema, protoDecode, protoEncode, registerProtocol, setDefaultDictionary } from "./encoder/protocol";
+import { registerExtension, applyExtension, getProtocolSchema, protoDecode, protoEncode, registerProtocol, setDefaultDictionary, protoEncodeDebug } from "./encoder/protocol";
 import PROTOCOL from "./test-data/example-protocol-def";
 import DICTIONARY from './test-data/dictionary.json';
 import { areEqual } from "./encoder/helper";
+import { merge } from "./delta/delta";
 
 function runEncodingTest() {
     let tests = [
@@ -107,51 +108,47 @@ function runEncodingTest() {
         {
             "type": "gameupdate",
             "payload":
-
             {
                 "room": {
-                    "updated": 9226,
-                    "events": [
-                        {
-                            "type": 1,
-                            "payload": [
-                                0
-                            ]
-                        }
-                    ],
-                    "status": 2
+                    "room_slug": "test",
+                    // "next_player": null,
+                    // "starttime": 1775878393994,
+                    "updated": 70837,
+                    // "timeend": null,
+                    // "timesec": null
                 },
-                "teams": [
+                players: [
                     {
-                        "op": "set",
-                        "index": 0,
-                        "value": {
-                            "players": [
-                                {
-                                    "op": "set",
-                                    "index": 0,
-                                    "value": 0
-                                }
-                            ],
-                            "rank": 2
-                        }
-                    }
-                ],
-                "players": [
-                    {
-                        "op": "set",
-                        "index": 0,
-                        "value": {
-                            "id": 0,
-                            "shortid": "6BWDTQ",
-                            "displayname": "Player_0",
-                            "portraitid": 167,
-                            "teamid": 0,
-                            "rank": 2,
-                            "score": 0
-                        }
-                    }
+                        index: 100,
+                        op: "set",
+                        value: {
+                            id: 1,
+                            // displayname: 'Alice', 
+                            attr: { test: 123 },
+                        },
+                    },
                 ]
+                // "state": {},
+                // "teams": [
+                //     {
+                //         "team_slug": "team_o",
+                //         "name": "Team O",
+                //         "color": "#1187fd",
+                //         "order": 0,
+                //         "players": [],
+                //         "rank": 0,
+                //         "score": 0
+                //     },
+                //     {
+                //         "team_slug": "team_x",
+                //         "name": "Team X",
+                //         "color": "#dd7575",
+                //         "order": 1,
+                //         "players": [],
+                //         "rank": 0,
+                //         "score": 0
+                //     }
+                // ]
             }
         }
 
@@ -161,11 +158,42 @@ function runEncodingTest() {
     registerProtocol(PROTOCOL, DICTIONARY);
 
     registerExtension('gameupdate', 'default', {
-        state: { "cells": { "$static": { "$enum": ["", "HELLO", "WORLD"] } } },
-        players: { "attr": { "test": "uint" } },
-        teams: { "attr": { "test2": "uint" } },
+        "state": {
+            "cells": {
+                "$static": { "$enum": ["", "X", "O"] }
+            }
+        },
+        "players": {
+            "attr": {
+                "test": "uint"
+            }
+        },
+        "teams": {
+            "attr": {
+                "test2": "uint"
+            }
+        },
+        "room": {
+            "next_action": {
+                "$enum": [
+                    "pick",
+                    "move",
+                    "rematch"
+                ]
+            },
+            "events": {
+                "$array": {
+                    "type": {
+                        "$enum": [
+                            "pick"
+                        ]
+                    },
+                    "payload": "any"
+                }
+            }
+        }
     });
-    applyExtension('gameupdate', 'default');
+    // applyExtension('gameupdate', 'default');
 
 
     registerProtocol({
@@ -179,19 +207,35 @@ function runEncodingTest() {
     for (let i = 0; i < tests.length; i++) {
         const test = tests[i];
         console.time("Encoding " + i);
-        let encoded = protoEncode(test);
+        let encoded = protoEncodeDebug(test);
+        console.log("Encoding report:", encoded.report);
         console.timeEnd("Encoding " + i);
         console.time("Decoding " + i);
-        let decoded = protoDecode(encoded);
+        let decoded = protoDecode(encoded.buffer);
         console.timeEnd("Decoding " + i);
 
         console.log("Encoded (original size):", JSON.stringify(test).length, "bytes");
-        console.log("Encoded (size):", encoded.byteLength, "bytes");
+        console.log("Encoded (size):", encoded.buffer.byteLength, "bytes");
         console.log("Original:", JSON.stringify(test));
         console.log("Decoded: ", JSON.stringify(decoded));
 
         console.log("Decoded equals original:", areEqual(decoded, test));
     }
+
+
+    let startJson = {};
+    let deltaJson = {
+        "cells": [
+            {
+                "op": "fill",
+                "index": 0,
+                "count": 9,
+                "value": ""
+            }
+        ]
+    }
+    let merged = merge(startJson, deltaJson);
+    console.log("Merged:", JSON.stringify(merged));
 
 }
 

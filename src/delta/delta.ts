@@ -20,6 +20,17 @@ function deepEqual(a: unknown, b: unknown): boolean {
     return JSON.stringify(a) === JSON.stringify(b);
 }
 
+/** For a brand-new or empty-source array: fill op if all elements identical (and >1), else plain array. */
+function newArrayValue(arr: any[]): any {
+    if (arr.length > 1) {
+        const first = JSON.stringify(arr[0]);
+        if (arr.every(v => JSON.stringify(v) === first)) {
+            return [{ op: 'fill', index: 0, count: arr.length, value: arr[0] }];
+        }
+    }
+    return arr;
+}
+
 // ---------------------------------------------------------------------------
 // Object delta (supports nested use)
 // ---------------------------------------------------------------------------
@@ -31,11 +42,10 @@ function objectDelta(
     const result: Record<string, any> = {};
 
     for (const key of Object.keys(to)) {
-        if (!(key in from)) {
-            if (Array.isArray(to[key])) {
-                const changes = arrayDelta([], to[key]);
-                result[key] = changes.length > 0 ? changes : to[key];
-            } else {
+        if (!(key in from) || (Array.isArray(from[key]) && from[key].length === 0 && Array.isArray(to[key]))) {
+            if (Array.isArray(to[key]) && to[key].length > 0) {
+                result[key] = newArrayValue(to[key]);
+            } else if (!Array.isArray(to[key])) {
                 result[key] = to[key];
             }
             continue;
@@ -77,8 +87,8 @@ function pushSet(changes: ArrayChange[], index: number, value: any): void {
     const last = changes[changes.length - 1];
 
     // Extend an existing fill run if the value matches.
-    if (last && last.op === 'fill' && last.index + last.length === index && deepEqual(last.value, value)) {
-        last.length++;
+    if (last && last.op === 'fill' && last.index + last.count === index && deepEqual(last.value, value)) {
+        last.count++;
         return;
     }
 
@@ -94,7 +104,7 @@ function pushSet(changes: ArrayChange[], index: number, value: any): void {
             } else if (last.values.length === 1) {
                 changes[changes.length - 1] = { op: 'set', index: last.index, value: last.values[0] };
             }
-            changes.push({ op: 'fill', index: fillIndex, length: 2, value });
+            changes.push({ op: 'fill', index: fillIndex, count: 2, value });
         } else {
             last.values.push(value);
         }
@@ -104,7 +114,7 @@ function pushSet(changes: ArrayChange[], index: number, value: any): void {
     // Promote a lone set: identical value → fill, different value → setrange.
     if (last && last.op === 'set' && last.index + 1 === index) {
         if (deepEqual(last.value, value)) {
-            changes[changes.length - 1] = { op: 'fill', index: last.index, length: 2, value };
+            changes[changes.length - 1] = { op: 'fill', index: last.index, count: 2, value };
         } else {
             changes[changes.length - 1] = { op: 'setrange', index: last.index, values: [last.value, value] };
         }
@@ -243,7 +253,7 @@ export function arrayMerge(from: any[], changes: ArrayChange[]): any[] {
         if (change.op === 'replace') {
             return [...change.values];
         } else if (change.op === 'fill') {
-            for (let i = 0; i < change.length; i++) {
+            for (let i = 0; i < change.count; i++) {
                 result[change.index + i] = change.value;
             }
         } else if (change.op === 'resize') {
